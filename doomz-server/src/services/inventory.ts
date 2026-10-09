@@ -13,11 +13,22 @@ export type InventoryItem = {
   updatedAt: Date;
 };
 
+export const CONTAINER_COLORS = ["red", "orange", "amber", "green", "teal", "sky", "blue", "violet", "pink"] as const;
+export type ContainerColor = (typeof CONTAINER_COLORS)[number];
+
+/** Stable fallback color for containers created before colors existed. */
+function defaultColor(id: string): ContainerColor {
+  let h = 0;
+  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return CONTAINER_COLORS[h % CONTAINER_COLORS.length]!;
+}
+
 export type InventoryContainer = {
   id: string;
   name: string;
   description: string;
   location: string;
+  color: ContainerColor;
   itemCount?: number;
 };
 
@@ -60,6 +71,7 @@ const toContainer = (r: ContainerRow): InventoryContainer => ({
   name: r.name,
   description: r.description,
   location: r.location,
+  color: CONTAINER_COLORS.includes(r.color as ContainerColor) ? (r.color as ContainerColor) : defaultColor(r.id),
   ...(r.item_count !== undefined && { itemCount: r.item_count }),
 });
 
@@ -84,6 +96,7 @@ type ContainerRow = {
   name: string;
   description: string;
   location: string;
+  color: string | null;
   item_count?: number;
 };
 
@@ -100,8 +113,10 @@ export async function getContainer(q: Queryable, id: string) {
   return rows[0] ? toContainer(rows[0]) : null;
 }
 
-/** Deletes a container; its items become unassigned via `ON DELETE SET NULL`. */
+/** Deletes an empty container; containers that still hold items are rejected. */
 export async function deleteContainer(q: Queryable, id: string) {
+  const { rows: held } = await q.query<{ n: number }>(`SELECT count(*)::int AS n FROM inventory_items WHERE container_id = $1`, [id]);
+  if (held[0]!.n > 0) throw new AppError(409, "Container is not empty", { itemCount: held[0]!.n });
   const { rows } = await q.query(`DELETE FROM inventory_containers WHERE id = $1 RETURNING id`, [id]);
   return rows.length > 0;
 }
@@ -112,14 +127,14 @@ async function assertContainer(q: Queryable, id: string) {
   return container;
 }
 
-export type ContainerInput = { id?: string; name: string; description?: string; location?: string };
+export type ContainerInput = { id?: string; name: string; description?: string; location?: string; color?: ContainerColor };
 
 export async function createContainer(q: Queryable, input: ContainerInput) {
   const id = (input.id?.trim() || slugify(input.name)).toLowerCase();
   try {
     const { rows } = await q.query<ContainerRow>(
-      `INSERT INTO inventory_containers (id, name, description, location) VALUES ($1, $2, $3, $4) RETURNING *`,
-      [id, input.name.trim(), input.description ?? "", input.location ?? ""],
+      `INSERT INTO inventory_containers (id, name, description, location, color) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [id, input.name.trim(), input.description ?? "", input.location ?? "", input.color ?? null],
     );
     return toContainer(rows[0]!);
   } catch (e) {
@@ -157,6 +172,19 @@ export async function createItem(q: Queryable, input: CreateItemInput) {
     if (e instanceof Error && /duplicate key/.test(e.message)) throw new AppError(409, "Item id already exists", { id });
     throw e;
   }
+}
+
+/** Deletes an item and drops it from any plan step that required it. Call inside a transaction. */
+export async function deleteInventoryItem(q: Queryable, id: string) {
+  await q.query(
+    `UPDATE plan_steps
+     SET required_items = COALESCE(
+       (SELECT jsonb_agg(e) FROM jsonb_array_elements(required_items) e WHERE e->>'itemId' <> $1), '[]'::jsonb)
+     WHERE required_items @> jsonb_build_array(jsonb_build_object('itemId', $1::text))`,
+    [id],
+  );
+  const { rows } = await q.query(`DELETE FROM inventory_items WHERE id = $1 RETURNING id`, [id]);
+  return rows.length > 0;
 }
 
 export async function getInventoryItem(q: Queryable, id: string) {

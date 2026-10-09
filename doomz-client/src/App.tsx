@@ -14,7 +14,8 @@ function App() {
           <Route path="/home/:threadId?" element={<ChatPage />} />
           <Route path="/plan/:planId?" element={<PlanPage />} />
           <Route path="/elements/:symbol?" element={<ElementsPage />} />
-          <Route path="/inventory/:containerId?" element={<InventoryPage />} />
+          <Route path="/inventory" element={<InventoryPage />} />
+          <Route path="/inventory/*" element={<Navigate to="/inventory" replace />} />
         </Route>
       </Routes>
     </BrowserRouter>
