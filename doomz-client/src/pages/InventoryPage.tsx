@@ -261,7 +261,7 @@ export default function InventoryPage() {
 
   const containers = useApi(() => listContainers(), [])
   const container = useApi(() => (containerId ? getContainer(containerId) : Promise.resolve(undefined)), [containerId])
-  const items = useApi(() => listInventory(containerId ? { container: containerId } : undefined), [containerId])
+  const items = useApi(() => listInventory({ container: containerId ?? "unassigned" }), [containerId])
 
   const reload = () => {
     containers.reload()
@@ -278,7 +278,8 @@ export default function InventoryPage() {
     }
   }
 
-  const unassigned = (items.data ?? []).filter((i) => !i.containerId)
+  const unassigned = items.data ?? []
+  const visibleItems = containerId ? (container.data?.items ?? items.data ?? []) : []
 
   return (
     <div className="space-y-4">
@@ -295,6 +296,7 @@ export default function InventoryPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {containerId && (
           <div className="flex rounded-lg border border-border p-0.5">
             <button
               aria-label="Grid view"
@@ -311,6 +313,7 @@ export default function InventoryPage() {
               <Table2 className="size-4" />
             </button>
           </div>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="outline"><Plus /> Add</Button>} />
             <DropdownMenuContent>
@@ -351,17 +354,18 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {items.loading ? (
-        <Skeleton className="h-64" />
-      ) : mode === "grid" ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {(containerId ? (container.data?.items ?? items.data ?? []) : (items.data ?? [])).map((item) => (
-            <ItemCard key={item.id} item={item} adjust={adjust} />
-          ))}
-        </div>
-      ) : (
-        <ItemTable items={containerId ? (container.data?.items ?? items.data ?? []) : (items.data ?? [])} adjust={adjust} showContainer={!containerId} />
-      )}
+      {containerId &&
+        (items.loading ? (
+          <Skeleton className="h-64" />
+        ) : mode === "grid" ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {visibleItems.map((item) => (
+              <ItemCard key={item.id} item={item} adjust={adjust} />
+            ))}
+          </div>
+        ) : (
+          <ItemTable items={visibleItems} adjust={adjust} showContainer={containerId === "unassigned"} />
+        ))}
 
       <AddItemSheet
         open={sheet === "item"}
