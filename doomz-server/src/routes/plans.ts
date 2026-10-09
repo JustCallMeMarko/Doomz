@@ -22,6 +22,7 @@ export const requiredItemSchema = z.object({
 const stepSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().max(2000).optional(),
+  status: z.enum(PLAN_STATUSES).optional(),
   completed: z.boolean().optional(),
   requiredItems: z.array(requiredItemSchema).max(50).optional(),
 });
@@ -45,6 +46,7 @@ const listQuerySchema = z.object({
 });
 
 const stepToggleSchema = z.object({
+  status: z.enum(PLAN_STATUSES).optional(),
   completed: z.boolean().optional(),
   consumeItems: z.boolean().optional(),
 });

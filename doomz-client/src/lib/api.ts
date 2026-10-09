@@ -45,6 +45,7 @@ export type PlanStep = {
   title: string;
   description: string;
   position: number;
+  status: PlanStatus;
   completed: boolean;
   completedAt: string | null;
   requiredItems: RequiredItem[];
@@ -69,7 +70,7 @@ export type PlanInput = {
   category?: string;
   priority?: PlanPriority;
   status?: PlanStatus;
-  steps?: { title: string; description?: string; completed?: boolean; requiredItems?: RequiredItem[] }[];
+  steps?: { title: string; description?: string; status?: PlanStatus; completed?: boolean; requiredItems?: RequiredItem[] }[];
 };
 
 export type InventoryItem = {
@@ -134,7 +135,7 @@ export const getPlan = (id: string) => request<Plan>(`/api/plans/${id}`);
 export const updatePlan = (id: string, patch: Partial<PlanInput>) =>
   request<Plan>(`/api/plans/${id}`, { method: "PATCH", ...json(patch) });
 export const deletePlan = (id: string) => request<void>(`/api/plans/${id}`, { method: "DELETE" });
-export const togglePlanStep = (planId: string, stepId: string, body: { completed?: boolean; consumeItems?: boolean } = {}) =>
+export const togglePlanStep = (planId: string, stepId: string, body: { status?: PlanStatus; completed?: boolean; consumeItems?: boolean } = {}) =>
   request<{ plan: Plan; consumed: InventoryItem[] }>(`/api/plans/${planId}/steps/${stepId}`, { method: "PATCH", ...json(body) });
 
 // ---------- Chat ----------

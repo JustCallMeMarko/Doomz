@@ -12,6 +12,7 @@ export type PlanStep = {
   title: string;
   description: string;
   position: number;
+  status: PlanStatus;
   completed: boolean;
   completedAt: Date | null;
   requiredItems: ItemAmount[];
@@ -33,6 +34,7 @@ export type Plan = {
 export type StepInput = {
   title: string;
   description?: string;
+  status?: PlanStatus;
   completed?: boolean;
   requiredItems?: ItemAmount[];
 };
@@ -65,6 +67,7 @@ type StepRow = {
   title: string;
   description: string;
   position: number;
+  status: PlanStatus;
   completed: boolean;
   completed_at: Date | null;
   required_items: ItemAmount[];
@@ -75,16 +78,20 @@ const toStep = (r: StepRow): PlanStep => ({
   title: r.title,
   description: r.description,
   position: r.position,
+  status: r.status,
   completed: r.completed,
   completedAt: r.completed_at,
   requiredItems: r.required_items,
 });
 
-/** A plan's status follows its steps: none done → todo, some → in_progress, all → done. */
-export function deriveStatus(steps: { completed?: boolean }[]): PlanStatus {
-  const done = steps.filter((s) => s.completed).length;
-  if (steps.length === 0 || done === 0) return "todo";
-  return done === steps.length ? "done" : "in_progress";
+const stepStatus = (s: { status?: PlanStatus; completed?: boolean }): PlanStatus =>
+  s.status ?? (s.completed ? "done" : "todo");
+
+/** A plan's status follows its steps: all todo → todo, all done → done, otherwise in_progress. */
+export function deriveStatus(steps: { status?: PlanStatus; completed?: boolean }[]): PlanStatus {
+  const statuses = steps.map(stepStatus);
+  if (statuses.length === 0 || statuses.every((s) => s === "todo")) return "todo";
+  return statuses.every((s) => s === "done") ? "done" : "in_progress";
 }
 
 async function hydrate(q: Queryable, rows: PlanRow[]): Promise<Plan[]> {
@@ -145,10 +152,11 @@ async function assertKnownItems(q: Queryable, steps: StepInput[]) {
 async function insertSteps(q: Queryable, planId: string, steps: StepInput[]) {
   await assertKnownItems(q, steps);
   for (const [position, step] of steps.entries()) {
+    const status = stepStatus(step);
     await q.query(
-      `INSERT INTO plan_steps (plan_id, title, description, position, completed, completed_at, required_items)
-       VALUES ($1, $2, $3, $4, $5, CASE WHEN $5 THEN now() END, $6)`,
-      [planId, step.title, step.description ?? "", position, step.completed ?? false, JSON.stringify(step.requiredItems ?? [])],
+      `INSERT INTO plan_steps (plan_id, title, description, position, status, completed, completed_at, required_items)
+       VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $6 THEN now() END, $7)`,
+      [planId, step.title, step.description ?? "", position, status, status === "done", JSON.stringify(step.requiredItems ?? [])],
     );
   }
 }
@@ -201,10 +209,10 @@ export async function deletePlan(q: Queryable, id: string) {
   return (affectedRows ?? 0) > 0;
 }
 
-export type StepToggleOptions = { completed?: boolean; consumeItems?: boolean };
+export type StepToggleOptions = { status?: PlanStatus; completed?: boolean; consumeItems?: boolean };
 
 /**
- * Sets (or toggles, if `completed` is omitted) a step's completion and recomputes the plan status.
+ * Sets a step's `status` (or completion; toggles if both are omitted) and recomputes the plan status.
  * With `consumeItems`, completing a step deducts its `requiredItems` from inventory atomically.
  */
 export async function setStepCompletion(
@@ -221,20 +229,21 @@ export async function setStepCompletion(
       throw notFound(plan.rows.length ? "Step" : "Plan");
     }
 
-    const completed = opts.completed ?? !step.completed;
+    const status: PlanStatus = opts.status ?? ((opts.completed ?? !step.completed) ? "done" : "todo");
+    const completed = status === "done";
     let consumed: InventoryItem[] = [];
     if (completed && !step.completed && opts.consumeItems) {
       consumed = await consumeItems(tx, step.required_items);
     }
 
     await tx.query(
-      `UPDATE plan_steps SET completed = $2,
+      `UPDATE plan_steps SET status = $3, completed = $2,
          completed_at = CASE WHEN $2 THEN COALESCE(completed_at, now()) END
        WHERE id = $1`,
-      [stepId, completed],
+      [stepId, completed, status],
     );
 
-    const { rows: all } = await tx.query<{ completed: boolean }>(`SELECT completed FROM plan_steps WHERE plan_id = $1`, [planId]);
+    const { rows: all } = await tx.query<{ status: PlanStatus }>(`SELECT status FROM plan_steps WHERE plan_id = $1`, [planId]);
     await tx.query(`UPDATE plans SET status = $2, updated_at = now() WHERE id = $1`, [planId, deriveStatus(all)]);
 
     const plan = await getPlan(tx, planId);

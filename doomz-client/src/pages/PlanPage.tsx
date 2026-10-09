@@ -1,6 +1,13 @@
 import { useState } from "react"
-import { ChevronLeft, Sparkles, Trash2 } from "lucide-react"
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
+import { ChevronLeft, MoreHorizontal, Sparkles, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Banner } from "@/components/banner"
@@ -17,12 +24,13 @@ import {
   type PlanStep,
 } from "@/lib/api"
 
-const STATUSES: { value: PlanStatus | "all"; label: string }[] = [
-  { value: "all", label: "All" },
+const STATUSES: { value: PlanStatus; label: string }[] = [
   { value: "todo", label: "To do" },
   { value: "in_progress", label: "In progress" },
   { value: "done", label: "Done" },
 ]
+
+const isStatus = (v: string | null): v is PlanStatus => STATUSES.some((s) => s.value === v)
 
 const STATUS_STYLE: Record<PlanStatus, string> = {
   todo: "text-muted-foreground",
@@ -34,13 +42,17 @@ const textareaCls =
   "w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
 
 export default function PlanPage() {
-  const [status, setStatus] = useState<PlanStatus | "all">("all")
+  const { planId } = useParams()
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const statusParam = searchParams.get("status")
+  const stepFilter = isStatus(statusParam) ? statusParam : "all"
+  const setStepFilter = (value: PlanStatus | "all") =>
+    setSearchParams(value === "all" ? {} : { status: value }, { replace: true })
+  const setPlanId = (id: string) => navigate(`/plan/${id}`)
+
   const [consume, setConsume] = useState(true)
-  const { data: plans, loading, error, reload } = useApi(
-    () => listPlans(status === "all" ? undefined : { status }),
-    [status],
-  )
-  const [planId, setPlanId] = useState<string>()
+  const { data: plans, loading, error, reload } = useApi(() => listPlans(), [])
   const plan = useApi(() => (planId ? getPlan(planId) : Promise.resolve(undefined)), [planId])
 
   const [title, setTitle] = useState("")
@@ -94,20 +106,19 @@ export default function PlanPage() {
     }
   }
 
-  const toggle = async (stepId: string) => {
+  const setStepStatus = async (stepId: string, status: PlanStatus) => {
     if (!planId) return
     try {
-      await togglePlanStep(planId, stepId, { consumeItems: consume })
+      await togglePlanStep(planId, stepId, { status, consumeItems: consume })
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Step update failed")
     }
     reloadAll()
   }
 
-  const columns: { label: string; steps: PlanStep[] }[] = [
-    { label: "To do", steps: (plan.data?.steps ?? []).filter((s) => !s.completed) },
-    { label: "Done", steps: (plan.data?.steps ?? []).filter((s) => s.completed) },
-  ]
+  const columns: { value: PlanStatus; label: string; steps: PlanStep[] }[] = STATUSES.filter(
+    (s) => stepFilter === "all" || s.value === stepFilter,
+  ).map((s) => ({ ...s, steps: (plan.data?.steps ?? []).filter((step) => step.status === s.value) }))
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
@@ -116,7 +127,7 @@ export default function PlanPage() {
           <div className="flex items-center gap-2 text-xl font-semibold tracking-tight">
             {planId ? (
               <>
-                <Button variant="ghost" size="icon-sm" aria-label="Back to plans" onClick={() => setPlanId(undefined)}>
+                <Button variant="ghost" size="icon-sm" aria-label="Back to plans" render={<Link to="/plan" />}>
                   <ChevronLeft />
                 </Button>
                 <span>{plan.data?.title ?? "Plan"}</span>
@@ -141,21 +152,6 @@ export default function PlanPage() {
 
         {!planId && (
           <>
-            <div className="flex gap-2">
-              {STATUSES.map((s) => (
-                <button
-                  key={s.value}
-                  onClick={() => setStatus(s.value)}
-                  className={cn(
-                    "rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors",
-                    status === s.value && "border-primary/50 bg-accent text-foreground",
-                  )}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-
             {loading ? (
               <div className="grid gap-4 md:grid-cols-2">
                 <Skeleton className="h-28" />
@@ -216,9 +212,34 @@ export default function PlanPage() {
         )}
 
         {planId && (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex gap-2">
+            {[{ value: "all" as const, label: "All" }, ...STATUSES].map((s) => (
+              <button
+                key={s.value}
+                onClick={() => setStepFilter(s.value)}
+                className={cn(
+                  "rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors",
+                  stepFilter === s.value && "border-primary/50 bg-accent text-foreground",
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {planId && plan.loading && !plan.data && (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Skeleton className="h-40" />
+            <Skeleton className="h-40" />
+            <Skeleton className="h-40" />
+          </div>
+        )}
+
+        {planId && plan.data && (
+          <div className={cn("grid gap-3", columns.length > 1 && "sm:grid-cols-3")}>
             {columns.map((col) => (
-              <div key={col.label} className="rounded-xl border border-border bg-card p-3">
+              <div key={col.value} className="rounded-xl border border-border bg-card p-3">
                 <div className="mb-2 flex items-center justify-between px-1">
                   <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{col.label}</span>
                   <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -228,17 +249,35 @@ export default function PlanPage() {
                 <div className="space-y-2">
                   {col.steps.map((step) => (
                     <div key={step.id} className="rounded-lg border border-border bg-background p-2.5">
-                      <label className="flex items-start gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={step.completed}
-                          onChange={() => toggle(step.id)}
-                          className="mt-0.5 size-3.5 accent-primary"
-                        />
-                        <span className={step.completed ? "text-muted-foreground line-through" : ""}>
-                          {step.title}
-                        </span>
-                      </label>
+                      <div className="flex items-start gap-2">
+                        <label className="flex flex-1 items-start gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={step.completed}
+                            onChange={() => setStepStatus(step.id, step.completed ? "todo" : "done")}
+                            className="mt-0.5 size-3.5 accent-primary"
+                          />
+                          <span className={step.completed ? "text-muted-foreground line-through" : ""}>
+                            {step.title}
+                          </span>
+                        </label>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
+                              <Button variant="ghost" size="icon-xs" aria-label="Move step">
+                                <MoreHorizontal />
+                              </Button>
+                            }
+                          />
+                          <DropdownMenuContent align="end">
+                            {STATUSES.filter((s) => s.value !== step.status).map((s) => (
+                              <DropdownMenuItem key={s.value} onClick={() => setStepStatus(step.id, s.value)}>
+                                Move to {s.label.toLowerCase()}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                       {step.requiredItems.length > 0 && (
                         <div className="mt-1 pl-5 text-xs text-muted-foreground">
                           needs {step.requiredItems.map((r) => `${r.quantity}× ${r.itemId}`).join(", ")}

@@ -98,6 +98,24 @@ describe("plans", () => {
     expect((await req("PATCH", `/api/plans/${plan.id}/steps/${crypto.randomUUID()}`)).status).toBe(404);
   });
 
+  test("steps can be moved to in_progress", async () => {
+    const plan = await (await req("POST", "/api/plans", newPlan)).json();
+    expect(plan.steps[0].status).toBe("todo");
+    const [s1, s2] = plan.steps;
+
+    let res = await (await req("PATCH", `/api/plans/${plan.id}/steps/${s1.id}`, { status: "in_progress" })).json();
+    expect(res.plan.status).toBe("in_progress");
+    expect(res.plan.steps[0]).toMatchObject({ status: "in_progress", completed: false });
+
+    res = await (await req("PATCH", `/api/plans/${plan.id}/steps/${s1.id}`, { status: "done" })).json();
+    await req("PATCH", `/api/plans/${plan.id}/steps/${s2.id}`, { status: "done" });
+    res = await (await req("GET", `/api/plans/${plan.id}`)).json();
+    expect(res.status).toBe("done");
+    expect(res.steps.every((s: { completed: boolean }) => s.completed)).toBe(true);
+
+    expect((await req("PATCH", `/api/plans/${plan.id}/steps/${s1.id}`, { status: "nope" })).status).toBe(400);
+  });
+
   test("completing a step can consume its required items", async () => {
     const plan = await (await req("POST", "/api/plans", newPlan)).json();
     const res = await req("PATCH", `/api/plans/${plan.id}/steps/${plan.steps[0].id}`, { consumeItems: true });
