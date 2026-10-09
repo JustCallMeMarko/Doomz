@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { Markdown } from "@/components/markdown"
 import { Banner } from "@/components/banner"
 import { useApi } from "@/hooks/use-api"
 import { cn } from "cn"
@@ -179,11 +180,11 @@ export default function ChatPage() {
               </div>
               <div
                 className={cn(
-                  "max-w-[80%] rounded-xl px-3 py-2 text-sm whitespace-pre-wrap",
-                  m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
+                  "max-w-[80%] min-w-0 rounded-xl px-3 py-2 text-sm",
+                  m.role === "user" ? "bg-primary whitespace-pre-wrap text-primary-foreground" : "bg-muted break-words",
                 )}
               >
-                {m.content}
+                {m.role === "assistant" && m.content ? <Markdown>{m.content}</Markdown> : m.content}
                 {m.pending && !m.content && (
                   <span className="flex items-center gap-1 py-1.5" aria-hidden>
                     {[0, 150, 300].map((delay) => (
