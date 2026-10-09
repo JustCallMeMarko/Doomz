@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 /** Fetches `fn` on mount and when `deps` change. `reload` refetches with the latest `fn`. */
 export function useApi<T>(fn: () => Promise<T>, deps: unknown[] = []) {
@@ -29,5 +29,5 @@ export function useApi<T>(fn: () => Promise<T>, deps: unknown[] = []) {
     };
   }, [tick, ...deps]);
 
-  return { data, error, loading, reload };
+  return { data, error, loading, reload, setData: setData as Dispatch<SetStateAction<T | undefined>> };
 }

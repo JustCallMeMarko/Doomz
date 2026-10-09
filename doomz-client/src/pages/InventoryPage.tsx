@@ -271,8 +271,9 @@ export default function InventoryPage() {
 
   const adjust = async (id: string, delta: number) => {
     try {
-      await updateInventoryItem(id, { delta })
-      reload()
+      const updated = await updateInventoryItem(id, { delta })
+      items.setData((d) => d?.map((i) => (i.id === id ? updated : i)))
+      container.setData((d) => (d ? { ...d, items: d.items.map((i) => (i.id === id ? updated : i)) } : d))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
