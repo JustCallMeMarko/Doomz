@@ -75,6 +75,20 @@ export default function ElementsPage() {
               <div className="space-y-4 p-4">
                 <p className="text-sm text-muted-foreground">{selected.info}</p>
                 <div>
+                  <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Atomic data</div>
+                  <table className="w-full text-sm">
+                    <tbody className="divide-y divide-border [&>tr>td]:py-1 [&>tr>td:first-child]:text-muted-foreground [&>tr>td:last-child]:text-right">
+                      <tr><td>Atomic number</td><td>{selected.z}</td></tr>
+                      <tr><td>Atomic mass</td><td>{selected.mass} u</td></tr>
+                      <tr><td>Group</td><td>{selected.group}</td></tr>
+                      <tr><td>Period</td><td>{selected.period}</td></tr>
+                      <tr><td>Block</td><td>{selected.block}-block</td></tr>
+                      <tr><td>State at STP</td><td className="capitalize">{selected.state}</td></tr>
+                      <tr><td>Electron config</td><td>{selected.electronConfig}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div>
                   <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Uses</div>
                   <p className="text-sm">{selected.uses}</p>
                 </div>

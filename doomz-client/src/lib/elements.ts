@@ -22,6 +22,14 @@ export interface PeriodicElement {
   /** 1-based grid column (1..18) and row (1..9; 8 = lanthanides, 9 = actinides). */
   x: number;
   y: number;
+  /** IUPAC group (1-18), period (1-7), and block (s/p/d/f). */
+  group: number;
+  period: number;
+  block: "s" | "p" | "d" | "f";
+  /** State at standard temperature/pressure. */
+  state: "solid" | "liquid" | "gas";
+  /** Ground-state electron configuration, e.g. [Ar] 3d6 4s2. */
+  electronConfig: string;
   info: string;
   /** Practical uses, grid-down framing. */
   uses: string;
@@ -166,6 +174,66 @@ const ROWS: Row[] = [
   [118, "Og", "Oganesson", "noble", 294, 18, 7, "Heaviest element ever made.", "Research only — none", ["Accelerator production", "National labs", "Not obtainable"]],
 ];
 
+// --- Derived chemistry data ------------------------------------------------
+
+const GASES = new Set([1, 2, 7, 8, 9, 10, 17, 18, 36, 54, 86, 118]);
+const LIQUIDS = new Set([35, 80]);
+
+/** Aufbau filling order: [subshell, capacity]. */
+const SHELLS: [string, number][] = [
+  ["1s", 2], ["2s", 2], ["2p", 6], ["3s", 2], ["3p", 6], ["4s", 2],
+  ["3d", 10], ["4p", 6], ["5s", 2], ["4d", 10], ["5p", 6], ["6s", 2],
+  ["4f", 14], ["5d", 10], ["6p", 6], ["7s", 2], ["5f", 14], ["6d", 10], ["7p", 6],
+];
+
+const NOBLE: [number, string][] = [[2, "He"], [10, "Ne"], [18, "Ar"], [36, "Kr"], [54, "Xe"], [86, "Rn"]];
+
+/** Observed ground-state configs that break the Aufbau rule. */
+const CONFIG_EXCEPTIONS: Record<number, string> = {
+  24: "[Ar] 3d5 4s1", 29: "[Ar] 3d10 4s1",
+  41: "[Kr] 4d4 5s1", 42: "[Kr] 4d5 5s1", 44: "[Kr] 4d7 5s1", 45: "[Kr] 4d8 5s1",
+  46: "[Kr] 4d10", 47: "[Kr] 4d10 5s1",
+  57: "[Xe] 5d1 6s2", 58: "[Xe] 4f1 5d1 6s2", 64: "[Xe] 4f7 5d1 6s2",
+  78: "[Xe] 4f14 5d9 6s1", 79: "[Xe] 4f14 5d10 6s1",
+  89: "[Rn] 6d1 7s2", 90: "[Rn] 6d2 7s2", 91: "[Rn] 5f2 6d1 7s2",
+  92: "[Rn] 5f3 6d1 7s2", 93: "[Rn] 5f4 6d1 7s2", 96: "[Rn] 5f7 6d1 7s2",
+  103: "[Rn] 5f14 7s2 7p1",
+};
+
+function electronConfig(z: number): string {
+  if (CONFIG_EXCEPTIONS[z]) return CONFIG_EXCEPTIONS[z];
+  let n = z;
+  const parts: string[] = [];
+  for (const [sub, cap] of SHELLS) {
+    if (n <= 0) break;
+    const take = Math.min(n, cap);
+    parts.push(`${sub}${take}`);
+    n -= take;
+  }
+  // Compress the leading core to a noble-gas shorthand.
+  const coreZ = NOBLE.filter(([nz]) => nz < z).at(-1);
+  if (coreZ) {
+    const [nz, sym] = coreZ;
+    // Count how many subshells the noble gas fills so we can strip them.
+    let remaining = nz;
+    let i = 0;
+    for (const [, cap] of SHELLS) {
+      if (remaining <= 0) break;
+      remaining -= cap;
+      i++;
+    }
+    return `[${sym}] ${parts.slice(i).join(" ")}`;
+  }
+  return parts.join(" ");
+}
+
+function blockOf(x: number, y: number): "s" | "p" | "d" | "f" {
+  if (y >= 8) return "f";
+  if (x <= 2) return "s";
+  if (x <= 12) return "d";
+  return "p";
+}
+
 export const ELEMENTS: PeriodicElement[] = ROWS.map(
   ([z, symbol, name, category, mass, x, y, info, uses, examples]) => ({
     z,
@@ -175,6 +243,11 @@ export const ELEMENTS: PeriodicElement[] = ROWS.map(
     mass,
     x,
     y,
+    group: x,
+    period: y >= 8 ? (y === 8 ? 6 : 7) : y,
+    block: blockOf(x, y),
+    state: GASES.has(z) ? "gas" : LIQUIDS.has(z) ? "liquid" : "solid",
+    electronConfig: electronConfig(z),
     info,
     uses,
     examples,

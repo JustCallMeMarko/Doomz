@@ -130,6 +130,7 @@ export type GeneratedPlan = { saved: boolean; plan: Plan | PlanInput };
 export const listPlans = (filter?: { status?: PlanStatus; category?: string }) =>
   request<Plan[]>(`/api/plans${qs({ status: filter?.status, category: filter?.category })}`);
 export const createPlan = (input: PlanInput) => request<Plan>("/api/plans", { method: "POST", ...json(input) });
+export const getPlan = (id: string) => request<Plan>(`/api/plans/${id}`);
 export const updatePlan = (id: string, patch: Partial<PlanInput>) =>
   request<Plan>(`/api/plans/${id}`, { method: "PATCH", ...json(patch) });
 export const deletePlan = (id: string) => request<void>(`/api/plans/${id}`, { method: "DELETE" });
