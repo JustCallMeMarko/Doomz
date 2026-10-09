@@ -3,7 +3,7 @@ import type { Queryable } from "../db/client";
 import type { LLMTool } from "../lib/llm";
 import { isUuid } from "../lib/validate";
 import { listContainers, listInventory } from "./inventory";
-import { getPlan, listPlans, PLAN_STATUSES, type Plan } from "./plans";
+import { getPlan, listPlans, type Plan } from "./plans";
 
 export const TOOLS_PROMPT =
   "You can call tools to read the user's own inventory, storage containers and plans. Use them whenever the answer depends on what the user has or is working on, and never invent quantities, items or plans. The tools are read-only.";
@@ -59,10 +59,14 @@ export function createChatTools(db: Queryable): LLMTool[] {
         const [items, containers] = await Promise.all([listInventory(db, { category, container }), listContainers(db)]);
         const containerNames = new Map(containers.map((c) => [c.id, c.name]));
         const needle = query?.toLowerCase();
-        const matches = needle
+        let matches = needle
           ? items.filter((i) => [i.name, i.id, i.category].some((f) => f.toLowerCase().includes(needle)))
           : items;
+        // Small models guess filters like category "all"; give them everything rather than a misleading empty list.
+        const fellBack = matches.length === 0 && Boolean(query || category || container);
+        if (fellBack) matches = await listInventory(db);
         return {
+          ...(fellBack && { note: "Nothing matched those filters, so this is the full inventory." }),
           total: matches.length,
           items: matches.slice(0, MAX_ITEMS).map((i) => ({
             id: i.id,
@@ -84,12 +88,13 @@ export function createChatTools(db: Queryable): LLMTool[] {
     ),
     defineTool(
       "list_plans",
-      "List the user's plans with status, priority and progress.",
-      z.object({
-        status: z.enum(PLAN_STATUSES).optional(),
-        category: z.string().optional(),
-      }),
-      async (filters) => (await listPlans(db, filters)).map(planSummary),
+      "List all of the user's plans with status, priority, progress and each step's title and status.",
+      z.object({}),
+      async () =>
+        (await listPlans(db)).map((p) => ({
+          ...planSummary(p),
+          steps: p.steps.map((st) => ({ title: st.title, status: st.status })),
+        })),
     ),
     defineTool(
       "get_plan",
@@ -99,9 +104,10 @@ export function createChatTools(db: Queryable): LLMTool[] {
         let plan = isUuid(ref) ? await getPlan(db, ref) : null;
         if (!plan) {
           const needle = ref.toLowerCase();
-          plan = (await listPlans(db)).find((p) => p.title.toLowerCase().includes(needle)) ?? null;
+          const plans = await listPlans(db);
+          plan = plans.find((p) => p.title.toLowerCase().includes(needle)) ?? null;
+          if (!plan) return { error: `No plan matches "${ref}"`, availablePlans: plans.map((p) => p.title) };
         }
-        if (!plan) return { error: `No plan matches "${ref}"` };
 
         const onHand = new Map((await listInventory(db)).map((i) => [i.id, i]));
         return {

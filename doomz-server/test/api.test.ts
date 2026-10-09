@@ -245,22 +245,29 @@ describe("chat", () => {
     llm.toolCalls = [
       { name: "search_inventory", args: { query: "WAT", category: null } },
       { name: "list_containers", args: {} },
-      { name: "list_plans", args: { status: "todo" } },
+      { name: "list_plans", args: {} },
       { name: "get_plan", args: { plan: "rain" } },
       { name: "get_plan", args: { plan: plan.id } },
-      { name: "list_plans", args: { status: "bogus" } },
+      { name: "get_plan", args: {} },
+      { name: "get_plan", args: { plan: "moon base" } },
+      { name: "search_inventory", args: { category: "all" } },
       { name: "drop_tables", args: {} },
     ];
     expect((await req("POST", "/api/chat/stream", { message: "What do I have?" })).status).toBe(200);
     expect(llm.lastMessages[0]!.content).toContain("read-only");
 
-    const [inventory, containers, plans, byTitle, byId, invalid, unknown] = llm.toolResults as any[];
+    const [inventory, containers, plans, byTitle, byId, invalid, missing, fallback, unknown] = llm.toolResults as any[];
     expect(inventory.items.map((i: { id: string }) => i.id)).toContain("water");
     expect(containers.length).toBeGreaterThan(0);
-    expect(plans).toEqual([expect.objectContaining({ id: plan.id, title: "Rain catchment", progress: "0/1 steps done" })]);
+    expect(plans).toEqual([
+      expect.objectContaining({ id: plan.id, progress: "0/1 steps done", steps: [{ title: "Fill barrels", status: "todo" }] }),
+    ]);
     expect(byTitle).toEqual(byId);
     expect(byId.steps[0].requiredItems[0]).toMatchObject({ needed: 10, onHand: expect.any(Number) });
     expect(invalid.error).toBe("Invalid arguments");
+    expect(missing).toMatchObject({ availablePlans: ["Rain catchment"] });
+    expect(fallback.note).toContain("full inventory");
+    expect(fallback.total).toBeGreaterThan(inventory.total);
     expect(unknown).toEqual({ error: "Unknown tool" });
   });
 
