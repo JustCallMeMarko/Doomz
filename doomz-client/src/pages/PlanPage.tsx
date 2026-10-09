@@ -1,7 +1,6 @@
 import { useState } from "react"
-import { Switch } from "@/components/ui/switch"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
-import { ChevronLeft, GripVertical, MoreHorizontal, Sparkles, Trash2, PackageMinus } from "lucide-react"
+import { ChevronLeft, GripVertical, MoreHorizontal, Sparkles, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -52,7 +51,6 @@ export default function PlanPage() {
     setSearchParams(value === "all" ? {} : { status: value }, { replace: true })
   const setPlanId = (id: string) => navigate(`/plan/${id}`)
 
-  const [consume, setConsume] = useState(true)
   const [dragId, setDragId] = useState<string>()
   const [dropTarget, setDropTarget] = useState<PlanStatus>()
   const { data: plans, loading, error, reload } = useApi(() => listPlans(), [])
@@ -115,7 +113,7 @@ export default function PlanPage() {
       p ? { ...p, steps: p.steps.map((s) => (s.id === stepId ? { ...s, status, completed: status === "done" } : s)) } : p,
     )
     try {
-      await togglePlanStep(planId, stepId, { status, consumeItems: consume })
+      await togglePlanStep(planId, stepId, { status })
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Step update failed")
     }
@@ -142,16 +140,6 @@ export default function PlanPage() {
               "Strategy Plans"
             )}
           </div>
-          <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 transition-colors hover:border-primary/40">
-            <PackageMinus className={cn("size-4", consume ? "text-primary" : "text-muted-foreground")} />
-            <div className="leading-tight">
-              <div className="text-xs font-medium">Auto-deduct items</div>
-              <div className="text-[11px] text-muted-foreground">
-                {consume ? "Stock is used when a step moves to Done" : "Inventory stays unchanged"}
-              </div>
-            </div>
-            <Switch checked={consume} onCheckedChange={setConsume} aria-label="Auto-deduct items" />
-          </label>
         </div>
 
         {error && <Banner text={error.message} tone="error" />}
