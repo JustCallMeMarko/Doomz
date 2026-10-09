@@ -7,6 +7,7 @@ import {
   consumeItems,
   createContainer,
   createItem,
+  deleteContainer,
   getContainer,
   listContainers,
   listInventory,
@@ -74,6 +75,10 @@ export function inventoryRoutes({ db }: AppDeps) {
       const container = await getContainer(db, id);
       if (!container) throw notFound("Container");
       return c.json({ ...container, items: await listInventory(db, { container: id }) });
+    })
+    .delete("/containers/:id", async (c) => {
+      if (!(await deleteContainer(db, c.req.param("id")))) throw notFound("Container");
+      return c.body(null, 204);
     })
     .post("/consume", validate("json", consumeSchema), async (c) => {
       const { items } = c.req.valid("json");

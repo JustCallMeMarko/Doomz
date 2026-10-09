@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
-import { Link, useParams, useSearchParams } from "react-router-dom"
-import { ChevronRight, LayoutGrid, Minus, PackageOpen, Plus, Table2 } from "lucide-react"
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
+import { ChevronRight, LayoutGrid, Minus, MoreHorizontal, PackageOpen, Plus, Table2, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -23,6 +23,7 @@ import { cn } from "cn"
 import {
   createContainer,
   createItem,
+  deleteContainer,
   getContainer,
   listContainers,
   listInventory,
@@ -54,6 +55,30 @@ function QtyControls({ onAdjust }: { onAdjust: (delta: number) => void }) {
   )
 }
 
+type MoveItem = (id: string, containerId: string | null) => void
+
+function ItemActions({ item, containers, move }: { item: InventoryItem; containers: InventoryContainer[]; move: MoveItem }) {
+  const targets = [
+    ...containers.filter((c) => c.id !== item.containerId).map((c) => ({ id: c.id as string | null, name: c.name })),
+    ...(item.containerId ? [{ id: null, name: "Unassigned" }] : []),
+  ]
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`Move ${item.name}`} />}>
+        <MoreHorizontal />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        <div className="px-2 py-1 text-xs text-muted-foreground">Move to…</div>
+        {targets.map((t) => (
+          <DropdownMenuItem key={t.id ?? "unassigned"} onClick={() => move(item.id, t.id)}>
+            {t.name}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function FillBar({ item }: { item: InventoryItem }) {
   const pct = Math.min(100, (item.quantity / item.capacity) * 100)
   return (
@@ -74,7 +99,17 @@ function FillBar({ item }: { item: InventoryItem }) {
   )
 }
 
-function ItemCard({ item, adjust }: { item: InventoryItem; adjust: (id: string, delta: number) => void }) {
+function ItemCard({
+  item,
+  adjust,
+  containers,
+  move,
+}: {
+  item: InventoryItem
+  adjust: (id: string, delta: number) => void
+  containers: InventoryContainer[]
+  move: MoveItem
+}) {
   return (
     <div className="rounded-xl border border-border bg-card p-3">
       <div className="flex items-start justify-between gap-2">
@@ -84,7 +119,10 @@ function ItemCard({ item, adjust }: { item: InventoryItem; adjust: (id: string, 
             {item.category} · lv{item.level}
           </div>
         </div>
-        <QtyControls onAdjust={(d) => adjust(item.id, d)} />
+        <div className="flex items-center gap-1">
+          <QtyControls onAdjust={(d) => adjust(item.id, d)} />
+          <ItemActions item={item} containers={containers} move={move} />
+        </div>
       </div>
       <div className="mt-3">
         <FillBar item={item} />
@@ -139,7 +177,19 @@ function ContainersSkeleton() {
   )
 }
 
-function ItemTable({ items, adjust, showContainer }: { items: InventoryItem[]; adjust: (id: string, delta: number) => void; showContainer: boolean }) {
+function ItemTable({
+  items,
+  adjust,
+  showContainer,
+  containers,
+  move,
+}: {
+  items: InventoryItem[]
+  adjust: (id: string, delta: number) => void
+  showContainer: boolean
+  containers: InventoryContainer[]
+  move: MoveItem
+}) {
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-card">
       <table className="w-full text-sm">
@@ -162,7 +212,10 @@ function ItemTable({ items, adjust, showContainer }: { items: InventoryItem[]; a
                 <FillBar item={item} />
               </td>
               <td className="px-3 py-2">
-                <QtyControls onAdjust={(d) => adjust(item.id, d)} />
+                <div className="flex items-center gap-1">
+                  <QtyControls onAdjust={(d) => adjust(item.id, d)} />
+                  <ItemActions item={item} containers={containers} move={move} />
+                </div>
               </td>
             </tr>
           ))}
@@ -305,7 +358,9 @@ export default function InventoryPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const mode: ViewMode = searchParams.get("view") === "table" ? "table" : "grid"
   const setMode = (m: ViewMode) => setSearchParams(m === "table" ? { view: "table" } : {}, { replace: true })
-  const [sheet, setSheet] = useState<"item" | "container" | null>(null)
+  const navigate = useNavigate()
+  const [sheet, setSheet] = useState<"item" | "container" | "delete" | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string>()
 
   const containers = useApi(() => listContainers(), [])
@@ -325,6 +380,32 @@ export default function InventoryPage() {
       container.setData((d) => (d ? { ...d, items: d.items.map((i) => (i.id === id ? updated : i)) } : d))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const move: MoveItem = async (id, target) => {
+    try {
+      await updateInventoryItem(id, { containerId: target })
+      items.setData((d) => d?.filter((i) => i.id !== id))
+      container.setData((d) => (d ? { ...d, items: d.items.filter((i) => i.id !== id) } : d))
+      containers.reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const removeContainer = async () => {
+    if (!containerId) return
+    setDeleting(true)
+    try {
+      await deleteContainer(containerId)
+      setSheet(null)
+      navigate("/inventory", { replace: true })
+      containers.reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -367,6 +448,11 @@ export default function InventoryPage() {
               <Table2 className="size-4" />
             </button>
           </div>
+          )}
+          {container.data && (
+            <Button variant="outline" onClick={() => setSheet("delete")}>
+              <Trash2 /> Delete
+            </Button>
           )}
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="outline"><Plus /> Add</Button>} />
@@ -416,11 +502,17 @@ export default function InventoryPage() {
         ) : mode === "grid" ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {visibleItems.map((item) => (
-              <ItemCard key={item.id} item={item} adjust={adjust} />
+              <ItemCard key={item.id} item={item} adjust={adjust} containers={containers.data ?? []} move={move} />
             ))}
           </div>
         ) : (
-          <ItemTable items={visibleItems} adjust={adjust} showContainer={containerId === "unassigned"} />
+          <ItemTable
+            items={visibleItems}
+            adjust={adjust}
+            showContainer={containerId === "unassigned"}
+            containers={containers.data ?? []}
+            move={move}
+          />
         ))}
 
       <AddItemSheet
@@ -430,6 +522,26 @@ export default function InventoryPage() {
         containerId={containerId === "unassigned" ? undefined : containerId}
         onDone={reload}
       />
+      <Sheet open={sheet === "delete"} onOpenChange={(o) => setSheet(o ? "delete" : null)}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Delete {container.data?.name}?</SheetTitle>
+            <SheetDescription>
+              {visibleItems.length > 0
+                ? `Its ${visibleItems.length} item${visibleItems.length === 1 ? "" : "s"} will move to Unassigned, not be deleted.`
+                : "This container is empty."}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="flex gap-2 p-4">
+            <Button variant="destructive" onClick={removeContainer} disabled={deleting}>
+              <Trash2 /> Delete container
+            </Button>
+            <Button variant="outline" onClick={() => setSheet(null)}>
+              Cancel
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
       <AddContainerSheet open={sheet === "container"} onOpenChange={(o) => setSheet(o ? "container" : null)} onDone={reload} />
     </div>
   )

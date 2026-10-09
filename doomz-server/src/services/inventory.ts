@@ -100,6 +100,12 @@ export async function getContainer(q: Queryable, id: string) {
   return rows[0] ? toContainer(rows[0]) : null;
 }
 
+/** Deletes a container; its items become unassigned via `ON DELETE SET NULL`. */
+export async function deleteContainer(q: Queryable, id: string) {
+  const { rows } = await q.query(`DELETE FROM inventory_containers WHERE id = $1 RETURNING id`, [id]);
+  return rows.length > 0;
+}
+
 async function assertContainer(q: Queryable, id: string) {
   const container = await getContainer(q, id);
   if (!container) throw notFound("Container");

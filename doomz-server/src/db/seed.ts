@@ -1,4 +1,4 @@
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 type SeedElement = {
   id: string;
@@ -94,20 +94,10 @@ export async function seed(db: PGlite) {
         [x, y, result],
       );
     }
-    for (const c of SEED_CONTAINERS) {
-      await tx.query(
-        `INSERT INTO inventory_containers (id, name, description, location)
-         VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
-        [c.id, c.name, c.description, c.location],
-      );
-    }
-    for (const i of SEED_INVENTORY) {
-      await tx.query(
-        `INSERT INTO inventory_items (id, name, category, unit, quantity, capacity, container_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
-        [i.id, i.name, i.category, i.unit, i.quantity, i.capacity, CONTAINER_FOR_CATEGORY[i.category] ?? "main-crate"],
-      );
-    }
+    // Starter containers/items are inserted once so user deletions survive restarts.
+    const { rows: seeded } = await tx.query(`SELECT 1 FROM app_meta WHERE key = 'inventory_seed_v1'`);
+    if (seeded.length === 0) await seedInventory(tx);
+
     // One-time backfill for databases seeded before containers existed; afterwards
     // NULL container_id means "not stored in a container".
     const { rows: done } = await tx.query(`SELECT 1 FROM app_meta WHERE key = 'container_backfill_v1'`);
@@ -119,4 +109,22 @@ export async function seed(db: PGlite) {
       await tx.query(`INSERT INTO app_meta (key, value) VALUES ('container_backfill_v1', '1')`);
     }
   });
+}
+
+async function seedInventory(tx: Transaction) {
+  for (const c of SEED_CONTAINERS) {
+    await tx.query(
+      `INSERT INTO inventory_containers (id, name, description, location)
+       VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+      [c.id, c.name, c.description, c.location],
+    );
+  }
+  for (const i of SEED_INVENTORY) {
+    await tx.query(
+      `INSERT INTO inventory_items (id, name, category, unit, quantity, capacity, container_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
+      [i.id, i.name, i.category, i.unit, i.quantity, i.capacity, CONTAINER_FOR_CATEGORY[i.category] ?? "main-crate"],
+    );
+  }
+  await tx.query(`INSERT INTO app_meta (key, value) VALUES ('inventory_seed_v1', '1')`);
 }
