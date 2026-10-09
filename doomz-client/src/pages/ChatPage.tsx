@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Bot, Send, Trash2, User } from "lucide-react"
+import { Bot, ChevronDown, Send, Trash2, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Banner } from "@/components/banner"
 import { useApi } from "@/hooks/use-api"
@@ -140,17 +146,22 @@ export default function ChatPage() {
             <div className="font-medium">Doomz AI</div>
             <div className="text-xs text-muted-foreground">Local model · streams token by token</div>
           </div>
-          <select
-            value={persona}
-            onChange={(e) => setPersona(e.target.value as Persona)}
-            className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm dark:bg-input/30"
-          >
-            {PERSONAS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button variant="outline" size="sm" className="capitalize">
+                  {persona} <ChevronDown />
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end">
+              {PERSONAS.map((p) => (
+                <DropdownMenuItem key={p} onClick={() => setPersona(p)} className="capitalize">
+                  {p}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-4">
