@@ -80,7 +80,16 @@ export type InventoryItem = {
   quantity: number;
   capacity: number;
   level: number;
+  containerId: string | null;
   updatedAt: string;
+};
+
+export type InventoryContainer = {
+  id: string;
+  name: string;
+  description: string;
+  location: string;
+  itemCount?: number;
 };
 
 export type Element = {
@@ -174,9 +183,27 @@ export const unlockElement = (elementId: string) =>
 
 // ---------- Inventory ----------
 
-export const listInventory = (category?: string) => request<InventoryItem[]>(`/api/inventory${qs({ category })}`);
-export const updateInventoryItem = (id: string, patch: { delta?: number; quantity?: number; capacity?: number; level?: number }) =>
-  request<InventoryItem>(`/api/inventory/items/${id}`, { method: "PATCH", ...json(patch) });
+export const listInventory = (filter?: { category?: string; container?: string }) =>
+  request<InventoryItem[]>(`/api/inventory${qs({ category: filter?.category, container: filter?.container })}`);
+export const createItem = (input: {
+  id?: string;
+  name: string;
+  category: string;
+  unit?: string;
+  quantity?: number;
+  capacity: number;
+  level?: number;
+  containerId?: string | null;
+}) => request<InventoryItem>("/api/inventory/items", { method: "POST", ...json(input) });
+export const updateInventoryItem = (
+  id: string,
+  patch: { delta?: number; quantity?: number; capacity?: number; level?: number; containerId?: string | null },
+) => request<InventoryItem>(`/api/inventory/items/${id}`, { method: "PATCH", ...json(patch) });
+export const listContainers = () => request<InventoryContainer[]>("/api/inventory/containers");
+export const getContainer = (id: string) =>
+  request<InventoryContainer & { items: InventoryItem[] }>(`/api/inventory/containers/${id}`);
+export const createContainer = (input: { id?: string; name: string; description?: string; location?: string }) =>
+  request<InventoryContainer>("/api/inventory/containers", { method: "POST", ...json(input) });
 export const consumeItems = (items: RequiredItem[]) =>
   request<{ items: InventoryItem[] }>("/api/inventory/consume", { method: "POST", ...json({ items }) });
 

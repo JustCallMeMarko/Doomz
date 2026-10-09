@@ -248,3 +248,43 @@ describe("chat", () => {
     expect((await req("POST", "/api/chat/generate-plan", { prompt: "x" })).status).toBe(502);
   });
 });
+
+describe("containers", () => {
+  test("creates items and containers, filters by container", async () => {
+    const containers = await (await req("GET", "/api/inventory/containers")).json();
+    expect(containers.find((c: { id: string }) => c.id === "main-crate")).toMatchObject({ itemCount: 9 });
+    expect(containers.find((c: { id: string }) => c.id === "med-cabinet")).toMatchObject({ itemCount: 3 });
+
+    const crate = await (await req("GET", "/api/inventory/containers/main-crate")).json();
+    expect(crate.items).toHaveLength(9);
+    expect((await req("GET", "/api/inventory/containers/nope")).status).toBe(404);
+
+    const created = await req("POST", "/api/inventory/containers", { name: "Fuel Drum", location: "Shed" });
+    expect(created.status).toBe(201);
+    expect(await created.json()).toMatchObject({ id: "fuel-drum", name: "Fuel Drum" });
+    expect((await req("POST", "/api/inventory/containers", { id: "main-crate", name: "Dupe" })).status).toBe(409);
+
+    const item = await req("POST", "/api/inventory/items", {
+      name: "Water Purification Tablets",
+      category: "Medical",
+      unit: "tablets",
+      quantity: 50,
+      capacity: 100,
+      containerId: "med-cabinet",
+    });
+    expect(item.status).toBe(201);
+    expect(await item.json()).toMatchObject({ id: "water-purification-tablets", containerId: "med-cabinet" });
+
+    expect((await req("POST", "/api/inventory/items", { name: "x", category: "y", capacity: 1, containerId: "ghost" })).status).toBe(404);
+    expect((await req("POST", "/api/inventory/items", { name: "x", category: "y", capacity: 1, quantity: 5 })).status).toBe(409);
+
+    expect(await (await req("GET", "/api/inventory?container=med-cabinet")).json()).toHaveLength(4);
+    expect(await (await req("GET", "/api/inventory?container=unassigned")).json()).toHaveLength(0);
+
+    expect((await req("PATCH", "/api/inventory/items/fuel", { containerId: "fuel-drum" })).json()).resolves
+      .toMatchObject({ containerId: "fuel-drum" });
+    await req("PATCH", "/api/inventory/items/fuel", { containerId: "fuel-drum" });
+    expect((await req("PATCH", "/api/inventory/items/fuel", { containerId: "ghost" })).status).toBe(404);
+    expect(await (await req("PATCH", "/api/inventory/items/fuel", { containerId: null })).json()).toMatchObject({ containerId: null });
+  });
+});

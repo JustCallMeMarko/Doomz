@@ -51,8 +51,12 @@ Errors are returned as `{ "error": string, "details"?: unknown }`. Timestamps ar
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| GET | `/api/inventory` | Filter: `?category=` |
-| PATCH | `/api/inventory/items/:id` | `{ delta? \| quantity?, capacity?, level? }`. Quantity must stay within `0..capacity` (409) |
+| GET | `/api/inventory` | Filter: `?category=`, `?container=<id>` or `?container=unassigned` |
+| POST | `/api/inventory/items` | `{ name, category?, unit?, quantity?, capacity, level?, containerId? }` → 201 |
+| PATCH | `/api/inventory/items/:id` | `{ delta? \| quantity?, capacity?, level?, containerId? }`. Quantity must stay within `0..capacity` (409); `containerId: null` unassigns |
+| GET | `/api/inventory/containers` | List containers with item counts |
+| POST | `/api/inventory/containers` | `{ name, description?, location? }` → 201 |
+| GET | `/api/inventory/containers/:id` | Container detail including its `items` |
 | POST | `/api/inventory/consume` | `{ items: [{ itemId, quantity }] }`. All-or-nothing; 409 with `details.shortages` if anything is short |
 
 ### Typed client

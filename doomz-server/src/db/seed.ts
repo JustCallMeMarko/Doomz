@@ -53,6 +53,13 @@ export const SEED_RECIPES: [string, string, string][] = [
   ["metal", "steam", "electricity"],
 ];
 
+export const SEED_CONTAINERS = [
+  { id: "main-crate", name: "Main Storage Crate", description: "General-purpose stockpile crate.", location: "Shelter floor" },
+  { id: "med-cabinet", name: "Medical Cabinet", description: "Locked cabinet for triage supplies.", location: "Shelter wall" },
+];
+
+const CONTAINER_FOR_CATEGORY: Record<string, string> = { Medical: "med-cabinet" };
+
 export const SEED_INVENTORY = [
   { id: "water", name: "Purified Water", category: "Water", unit: "liters", quantity: 60, capacity: 200 },
   { id: "canned-food", name: "Canned Food", category: "Food", unit: "cans", quantity: 40, capacity: 120 },
@@ -87,12 +94,29 @@ export async function seed(db: PGlite) {
         [x, y, result],
       );
     }
+    for (const c of SEED_CONTAINERS) {
+      await tx.query(
+        `INSERT INTO inventory_containers (id, name, description, location)
+         VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+        [c.id, c.name, c.description, c.location],
+      );
+    }
     for (const i of SEED_INVENTORY) {
       await tx.query(
-        `INSERT INTO inventory_items (id, name, category, unit, quantity, capacity)
-         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
-        [i.id, i.name, i.category, i.unit, i.quantity, i.capacity],
+        `INSERT INTO inventory_items (id, name, category, unit, quantity, capacity, container_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
+        [i.id, i.name, i.category, i.unit, i.quantity, i.capacity, CONTAINER_FOR_CATEGORY[i.category] ?? "main-crate"],
       );
+    }
+    // One-time backfill for databases seeded before containers existed; afterwards
+    // NULL container_id means "not stored in a container".
+    const { rows: done } = await tx.query(`SELECT 1 FROM app_meta WHERE key = 'container_backfill_v1'`);
+    if (done.length === 0) {
+      await tx.query(
+        `UPDATE inventory_items SET container_id = CASE WHEN category = 'Medical' THEN 'med-cabinet' ELSE 'main-crate' END
+         WHERE container_id IS NULL`,
+      );
+      await tx.query(`INSERT INTO app_meta (key, value) VALUES ('container_backfill_v1', '1')`);
     }
   });
 }
