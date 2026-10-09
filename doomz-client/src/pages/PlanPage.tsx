@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
-import { ChevronLeft, MoreHorizontal, Sparkles, Trash2 } from "lucide-react"
+import { ChevronLeft, GripVertical, MoreHorizontal, Sparkles, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -52,6 +52,8 @@ export default function PlanPage() {
   const setPlanId = (id: string) => navigate(`/plan/${id}`)
 
   const [consume, setConsume] = useState(true)
+  const [dragId, setDragId] = useState<string>()
+  const [dropTarget, setDropTarget] = useState<PlanStatus>()
   const { data: plans, loading, error, reload } = useApi(() => listPlans(), [])
   const plan = useApi(() => (planId ? getPlan(planId) : Promise.resolve(undefined)), [planId])
 
@@ -108,6 +110,9 @@ export default function PlanPage() {
 
   const setStepStatus = async (stepId: string, status: PlanStatus) => {
     if (!planId) return
+    plan.setData((p) =>
+      p ? { ...p, steps: p.steps.map((s) => (s.id === stepId ? { ...s, status, completed: status === "done" } : s)) } : p,
+    )
     try {
       await togglePlanStep(planId, stepId, { status, consumeItems: consume })
     } catch (e) {
@@ -239,7 +244,30 @@ export default function PlanPage() {
         {planId && plan.data && (
           <div className={cn("grid gap-3", columns.length > 1 && "sm:grid-cols-3")}>
             {columns.map((col) => (
-              <div key={col.value} className="rounded-xl border border-border bg-card p-3">
+              <div
+                key={col.value}
+                onDragOver={(e) => {
+                  if (!dragId) return
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = "move"
+                  setDropTarget(col.value)
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropTarget(undefined)
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  const id = e.dataTransfer.getData("text/plain") || dragId
+                  const step = plan.data?.steps.find((s) => s.id === id)
+                  setDragId(undefined)
+                  setDropTarget(undefined)
+                  if (step && step.status !== col.value) setStepStatus(step.id, col.value)
+                }}
+                className={cn(
+                  "rounded-xl border border-border bg-card p-3 transition-colors",
+                  dropTarget === col.value && "border-primary/60 bg-accent/40",
+                )}
+              >
                 <div className="mb-2 flex items-center justify-between px-1">
                   <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{col.label}</span>
                   <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -248,19 +276,28 @@ export default function PlanPage() {
                 </div>
                 <div className="space-y-2">
                   {col.steps.map((step) => (
-                    <div key={step.id} className="rounded-lg border border-border bg-background p-2.5">
+                    <div
+                      key={step.id}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/plain", step.id)
+                        e.dataTransfer.effectAllowed = "move"
+                        setDragId(step.id)
+                      }}
+                      onDragEnd={() => {
+                        setDragId(undefined)
+                        setDropTarget(undefined)
+                      }}
+                      className={cn(
+                        "cursor-grab rounded-lg border border-border bg-background p-2.5 select-none active:cursor-grabbing",
+                        dragId === step.id && "opacity-40",
+                      )}
+                    >
                       <div className="flex items-start gap-2">
-                        <label className="flex flex-1 items-start gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={step.completed}
-                            onChange={() => setStepStatus(step.id, step.completed ? "todo" : "done")}
-                            className="mt-0.5 size-3.5 accent-primary"
-                          />
-                          <span className={step.completed ? "text-muted-foreground line-through" : ""}>
-                            {step.title}
-                          </span>
-                        </label>
+                        <GripVertical className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                        <span className={cn("flex-1 text-sm", step.completed && "text-muted-foreground line-through")}>
+                          {step.title}
+                        </span>
                         <DropdownMenu>
                           <DropdownMenuTrigger
                             render={
@@ -279,14 +316,16 @@ export default function PlanPage() {
                         </DropdownMenu>
                       </div>
                       {step.requiredItems.length > 0 && (
-                        <div className="mt-1 pl-5 text-xs text-muted-foreground">
+                        <div className="mt-1 pl-5.5 text-xs text-muted-foreground">
                           needs {step.requiredItems.map((r) => `${r.quantity}× ${r.itemId}`).join(", ")}
                         </div>
                       )}
                     </div>
                   ))}
                   {col.steps.length === 0 && (
-                    <p className="py-6 text-center text-xs text-muted-foreground">Nothing here.</p>
+                    <p className="py-6 text-center text-xs text-muted-foreground">
+                      {dragId ? "Drop here" : "Nothing here."}
+                    </p>
                   )}
                 </div>
               </div>
