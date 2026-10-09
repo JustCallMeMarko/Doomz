@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { useSearchParams } from "react-router-dom"
 import { Bot, Send, Trash2, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -26,6 +27,8 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const askedRef = useRef(false)
 
   useEffect(() => {
     if (!threadId) {
@@ -44,8 +47,8 @@ export default function ChatPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [messages])
 
-  const send = async () => {
-    const message = draft.trim()
+  const send = async (override?: string) => {
+    const message = (override ?? draft).trim()
     if (!message || sending) return
     setDraft("")
     setSending(true)
@@ -72,6 +75,16 @@ export default function ChatPage() {
       setSending(false)
     }
   }
+
+  useEffect(() => {
+    const ask = searchParams.get("ask")
+    if (!ask || askedRef.current) return
+    askedRef.current = true
+    const next = new URLSearchParams(searchParams)
+    next.delete("ask")
+    setSearchParams(next, { replace: true })
+    send(ask)
+  })
 
   return (
     <div className="grid h-full gap-4 lg:grid-cols-[260px_1fr]">
