@@ -88,6 +88,9 @@ CREATE TABLE IF NOT EXISTS inventory_containers (
 
 ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS container_id text REFERENCES inventory_containers(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS inventory_items_container_idx ON inventory_items (container_id);
+
+ALTER TABLE plan_steps ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'in_progress', 'done'));
+UPDATE plan_steps SET status = 'done' WHERE completed AND status <> 'done';
 `;
 
 export async function migrate(db: PGlite) {

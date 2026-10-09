@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { useSearchParams } from "react-router-dom"
+import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { Bot, ChevronDown, Send, Trash2, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -26,15 +26,17 @@ type Bubble = { id: string; role: "user" | "assistant"; content: string; pending
 
 export default function ChatPage() {
   const { data: threads, reload } = useApi(() => listThreads(), [])
-  const [threadId, setThreadId] = useState<string>()
+  const { threadId } = useParams()
+  const navigate = useNavigate()
+  const openThread = (id?: string, replace = false) => navigate(id ? `/home/${id}` : "/home", { replace })
   const [persona, setPersona] = useState<Persona>("general")
   const [messages, setMessages] = useState<Bubble[]>([])
   const [draft, setDraft] = useState("")
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   const [searchParams, setSearchParams] = useSearchParams()
-  const askedRef = useRef(false)
 
   useEffect(() => {
     if (!threadId) {
@@ -71,7 +73,7 @@ export default function ChatPage() {
         (delta) =>
           setMessages((m) => m.map((b) => (b.id === assistantId ? { ...b, content: b.content + delta } : b))),
       )
-      if (!threadId) setThreadId(id)
+      if (!threadId) openThread(id, true)
       setMessages((m) => m.map((b) => (b.id === assistantId ? { ...b, pending: false } : b)))
       reload()
     } catch (e) {
@@ -83,14 +85,14 @@ export default function ChatPage() {
   }
 
   useEffect(() => {
-    const ask = searchParams.get("ask")
-    if (!ask || askedRef.current) return
-    askedRef.current = true
+    const prompt = searchParams.get("prompt")
+    if (prompt === null) return
+    setDraft(prompt)
     const next = new URLSearchParams(searchParams)
-    next.delete("ask")
+    next.delete("prompt")
     setSearchParams(next, { replace: true })
-    send(ask)
-  })
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }, [searchParams, setSearchParams])
 
   return (
     <div className="grid h-full gap-4 lg:grid-cols-[260px_1fr]">
@@ -100,10 +102,7 @@ export default function ChatPage() {
           <Button
             variant="outline"
             size="xs"
-            onClick={() => {
-              setThreadId(undefined)
-              setMessages([])
-            }}
+            onClick={() => openThread()}
           >
             New
           </Button>
@@ -112,7 +111,7 @@ export default function ChatPage() {
           {threads?.map((t) => (
             <button
               key={t.id}
-              onClick={() => setThreadId(t.id)}
+              onClick={() => openThread(t.id)}
               className={cn(
                 "group flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-sm hover:bg-accent",
                 threadId === t.id && "bg-accent",
@@ -124,10 +123,7 @@ export default function ChatPage() {
                 onClick={(e) => {
                   e.stopPropagation()
                   deleteThread(t.id).then(() => {
-                    if (threadId === t.id) {
-                      setThreadId(undefined)
-                      setMessages([])
-                    }
+                    if (threadId === t.id) openThread(undefined, true)
                     reload()
                   })
                 }}
@@ -201,6 +197,7 @@ export default function ChatPage() {
           }}
         >
           <Input
+            ref={inputRef}
             placeholder={sending ? "Waiting for Doomz…" : "Message Doomz…"}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}

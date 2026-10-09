@@ -1,5 +1,4 @@
-import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useLocation, useNavigate, useParams } from "react-router-dom"
 import { Bot, MapPin } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,12 +12,21 @@ import { cn } from "cn"
 import { CATEGORY_META, ELEMENTS, type PeriodicElement } from "@/lib/elements"
 
 export default function ElementsPage() {
-  const [selected, setSelected] = useState<PeriodicElement>()
+  const { symbol } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
+  const selected = symbol ? ELEMENTS.find((el) => el.symbol.toLowerCase() === symbol.toLowerCase()) : undefined
+
+  const select = (el: PeriodicElement) =>
+    navigate(`/elements/${el.symbol}`, { replace: !!selected, state: { fromTable: true } })
+  const close = () => {
+    if ((location.state as { fromTable?: boolean } | null)?.fromTable) navigate(-1)
+    else navigate("/elements", { replace: true })
+  }
 
   const askAbout = (el: PeriodicElement) => {
     navigate(
-      `/home?ask=${encodeURIComponent(
+      `/home?prompt=${encodeURIComponent(
         `Tell me more about ${el.name} (${el.symbol}): key properties, practical uses, and how to obtain or refine it in a grid-down scenario.`,
       )}`,
     )
@@ -43,7 +51,7 @@ export default function ElementsPage() {
           {ELEMENTS.map((el) => (
             <button
               key={el.z}
-              onClick={() => setSelected(el)}
+              onClick={() => select(el)}
               style={{ gridColumn: el.x, gridRow: el.y }}
               className={cn(
                 "flex aspect-square flex-col items-center justify-center rounded-md border p-0.5 transition-colors",
@@ -60,7 +68,7 @@ export default function ElementsPage() {
         </div>
       </div>
 
-      <Sheet open={!!selected} onOpenChange={(o) => !o && setSelected(undefined)}>
+      <Sheet open={!!selected} onOpenChange={(o) => !o && close()}>
         <SheetContent>
           {selected && (
             <>

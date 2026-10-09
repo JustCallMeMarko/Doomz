@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { Link, useParams, useSearchParams } from "react-router-dom"
 import { ChevronRight, LayoutGrid, Minus, PackageOpen, Plus, Table2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -88,6 +89,52 @@ function ItemCard({ item, adjust }: { item: InventoryItem; adjust: (id: string, 
       <div className="mt-3">
         <FillBar item={item} />
       </div>
+    </div>
+  )
+}
+
+function ItemsSkeleton({ mode }: { mode: ViewMode }) {
+  if (mode === "table") {
+    return (
+      <div className="space-y-2 rounded-xl border border-border bg-card p-3">
+        <Skeleton className="h-5 w-full" />
+        {Array.from({ length: 6 }, (_, i) => (
+          <Skeleton key={i} className="h-9 w-full" />
+        ))}
+      </div>
+    )
+  }
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {Array.from({ length: 6 }, (_, i) => (
+        <div key={i} className="rounded-xl border border-border bg-card p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="space-y-1.5">
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="h-3 w-20" />
+            </div>
+            <Skeleton className="h-6 w-24" />
+          </div>
+          <div className="mt-3 space-y-1.5">
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-1.5 w-full" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ContainersSkeleton() {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+      {Array.from({ length: 8 }, (_, i) => (
+        <div key={i} className="space-y-2 rounded-xl border border-border bg-card p-4">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="mt-3 h-3 w-12" />
+        </div>
+      ))}
     </div>
   )
 }
@@ -254,8 +301,10 @@ function AddContainerSheet({ open, onOpenChange, onDone }: { open: boolean; onOp
 }
 
 export default function InventoryPage() {
-  const [mode, setMode] = useState<ViewMode>("grid")
-  const [containerId, setContainerId] = useState<string>()
+  const { containerId } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const mode: ViewMode = searchParams.get("view") === "table" ? "table" : "grid"
+  const setMode = (m: ViewMode) => setSearchParams(m === "table" ? { view: "table" } : {}, { replace: true })
   const [sheet, setSheet] = useState<"item" | "container" | null>(null)
   const [error, setError] = useState<string>()
 
@@ -286,13 +335,17 @@ export default function InventoryPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-          <button className={cn(!containerId || "text-muted-foreground hover:text-foreground")} onClick={() => setContainerId(undefined)}>
+          <Link to="/inventory" className={cn(!containerId || "text-muted-foreground hover:text-foreground")}>
             Stockpile
-          </button>
+          </Link>
           {containerId && (
             <>
               <ChevronRight className="size-4 text-muted-foreground" />
-              <span>{container.data?.name ?? containerId}</span>
+              {container.loading && !container.data ? (
+                <Skeleton className="h-6 w-32" />
+              ) : (
+                <span>{container.data?.name ?? (containerId === "unassigned" ? "Unassigned" : containerId)}</span>
+              )}
             </>
           )}
         </div>
@@ -330,34 +383,36 @@ export default function InventoryPage() {
       {error && <Banner text={error} tone="error" />}
       {items.error && <Banner text={items.error.message} tone="error" />}
 
-      {!containerId && (
+      {!containerId && (containers.loading && !containers.data ? (
+        <ContainersSkeleton />
+      ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {containers.data?.map((c) => (
-            <button
+            <Link
               key={c.id}
-              onClick={() => setContainerId(c.id)}
+              to={`/inventory/${c.id}`}
               className="rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/50"
             >
               <div className="text-sm font-medium">{c.name}</div>
               <div className="mt-0.5 text-xs text-muted-foreground">{c.location || "—"}</div>
               <div className="mt-2 text-xs text-muted-foreground">{c.itemCount ?? 0} items</div>
-            </button>
+            </Link>
           ))}
           {unassigned.length > 0 && (
-            <button
-              onClick={() => setContainerId("unassigned")}
+            <Link
+              to="/inventory/unassigned"
               className="rounded-xl border border-dashed border-border bg-card p-4 text-left transition-colors hover:border-primary/50"
             >
               <div className="text-sm font-medium text-muted-foreground">Unassigned</div>
               <div className="mt-2 text-xs text-muted-foreground">{unassigned.length} items</div>
-            </button>
+            </Link>
           )}
         </div>
-      )}
+      ))}
 
       {containerId &&
-        (items.loading ? (
-          <Skeleton className="h-64" />
+        (items.loading && !items.data ? (
+          <ItemsSkeleton mode={mode} />
         ) : mode === "grid" ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {visibleItems.map((item) => (

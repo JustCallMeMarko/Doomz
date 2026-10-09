@@ -11,10 +11,10 @@ function App() {
       <Routes>
         <Route element={<MainLayout />}>
           <Route path="/" element={<Navigate to="/home" replace />} />
-          <Route path="/home" element={<ChatPage />} />
-          <Route path="/plan" element={<PlanPage />} />
-          <Route path="/elements" element={<ElementsPage />} />
-          <Route path="/inventory" element={<InventoryPage />} />
+          <Route path="/home/:threadId?" element={<ChatPage />} />
+          <Route path="/plan/:planId?" element={<PlanPage />} />
+          <Route path="/elements/:symbol?" element={<ElementsPage />} />
+          <Route path="/inventory/:containerId?" element={<InventoryPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
