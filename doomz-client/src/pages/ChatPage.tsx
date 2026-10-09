@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
-import { Bot, ChevronDown, Send, Trash2, User } from "lucide-react"
+import { Bot, ChevronDown, Loader2, Send, Trash2, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -169,7 +169,13 @@ export default function ChatPage() {
           {messages.map((m) => (
             <div key={m.id} className={cn("flex gap-2", m.role === "user" && "flex-row-reverse")}>
               <div className="mt-0.5 shrink-0 rounded-lg bg-muted p-1.5">
-                {m.role === "user" ? <User className="size-4" /> : <Bot className="size-4 text-primary" />}
+                {m.role === "user" ? (
+                  <User className="size-4" />
+                ) : m.pending && !m.content ? (
+                  <Loader2 className="size-4 animate-spin text-primary" aria-label="Doomz is thinking" />
+                ) : (
+                  <Bot className="size-4 text-primary" />
+                )}
               </div>
               <div
                 className={cn(
@@ -178,7 +184,17 @@ export default function ChatPage() {
                 )}
               >
                 {m.content}
-                {m.pending && !m.content && <span className="inline-block animate-pulse">…</span>}
+                {m.pending && !m.content && (
+                  <span className="flex items-center gap-1 py-1.5" aria-hidden>
+                    {[0, 150, 300].map((delay) => (
+                      <span
+                        key={delay}
+                        className="size-1.5 animate-bounce rounded-full bg-muted-foreground"
+                        style={{ animationDelay: `${delay}ms` }}
+                      />
+                    ))}
+                  </span>
+                )}
               </div>
             </div>
           ))}
