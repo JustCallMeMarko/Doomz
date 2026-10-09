@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createApp } from "../src/app";
 import { createDb } from "../src/db/client";
+import { seed } from "../src/db/seed";
 import { runTool, type LLM, type LLMMessage, type StreamChatOptions } from "../src/lib/llm";
 
 class FakeLLM implements LLM {
@@ -309,6 +310,26 @@ describe("chat", () => {
 });
 
 describe("containers", () => {
+  test("deleting a container unassigns its items, and items can move between containers", async () => {
+    await req("POST", "/api/inventory/containers", { id: "go-bag", name: "Go Bag" });
+    const moved = await req("PATCH", "/api/inventory/items/water", { containerId: "go-bag" });
+    expect(await moved.json()).toMatchObject({ id: "water", containerId: "go-bag" });
+    expect((await (await req("GET", "/api/inventory/containers/go-bag")).json()).items.map((i: { id: string }) => i.id)).toEqual(["water"]);
+
+    expect((await req("DELETE", "/api/inventory/containers/go-bag")).status).toBe(204);
+    expect((await req("DELETE", "/api/inventory/containers/go-bag")).status).toBe(404);
+    expect((await req("GET", "/api/inventory/containers/go-bag")).status).toBe(404);
+    const unassigned = await (await req("GET", "/api/inventory?container=unassigned")).json();
+    expect(unassigned.map((i: { id: string }) => i.id)).toContain("water");
+  });
+
+  test("deleted starter containers are not re-seeded on restart", async () => {
+    const db = await createDb();
+    await db.query(`DELETE FROM inventory_containers WHERE id = 'main-crate'`);
+    await seed(db);
+    expect((await db.query(`SELECT 1 FROM inventory_containers WHERE id = 'main-crate'`)).rows).toHaveLength(0);
+  });
+
   test("creates items and containers, filters by container", async () => {
     const containers = await (await req("GET", "/api/inventory/containers")).json();
     expect(containers.find((c: { id: string }) => c.id === "main-crate")).toMatchObject({ itemCount: 9 });

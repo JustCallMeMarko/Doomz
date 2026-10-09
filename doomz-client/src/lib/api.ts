@@ -206,6 +206,7 @@ export const getContainer = (id: string) =>
   request<InventoryContainer & { items: InventoryItem[] }>(`/api/inventory/containers/${id}`);
 export const createContainer = (input: { id?: string; name: string; description?: string; location?: string }) =>
   request<InventoryContainer>("/api/inventory/containers", { method: "POST", ...json(input) });
+export const deleteContainer = (id: string) => request<void>(`/api/inventory/containers/${id}`, { method: "DELETE" });
 export const consumeItems = (items: RequiredItem[]) =>
   request<{ items: InventoryItem[] }>("/api/inventory/consume", { method: "POST", ...json({ items }) });
 
