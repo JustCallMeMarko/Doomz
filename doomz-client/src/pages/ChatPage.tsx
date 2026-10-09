@@ -168,7 +168,7 @@ export default function ChatPage() {
           )}
           {messages.map((m) => (
             <div key={m.id} className={cn("flex gap-2", m.role === "user" && "flex-row-reverse")}>
-              <div className="mt-0.5 shrink-0 rounded-lg bg-muted p-1.5">
+              <div className="mt-0.5 shrink-0 self-start rounded-lg bg-muted p-1.5">
                 {m.role === "user" ? (
                   <User className="size-4" />
                 ) : m.pending && !m.content ? (
