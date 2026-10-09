@@ -1,273 +1,402 @@
-import { useEffect, useState } from "react"
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
-import { ChevronRight, LayoutGrid, Minus, MoreHorizontal, PackageOpen, Plus, Table2, Trash2 } from "lucide-react"
+import { useState } from "react"
+import { useSearchParams } from "react-router-dom"
+import { LayoutGrid, Minus, MoreHorizontal, PackageOpen, Plus, Table2, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Banner } from "@/components/banner"
 import { useApi } from "@/hooks/use-api"
 import { cn } from "cn"
 import {
+  CONTAINER_COLORS,
   createContainer,
   createItem,
   deleteContainer,
-  getContainer,
+  deleteItem,
   listContainers,
   listInventory,
   updateInventoryItem,
+  type ContainerColor,
   type InventoryContainer,
   type InventoryItem,
 } from "@/lib/api"
 
-type ViewMode = "grid" | "table"
+type ViewMode = "box" | "table"
+type TableFilter = "all" | "containers" | "items"
+type MoveItem = (id: string, containerId: string | null) => void
+type Confirm = { kind: "item" | "container"; id: string; name: string }
 
-const inputCls =
-  "w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+const UNASSIGNED = "__unassigned"
 
-function QtyControls({ onAdjust }: { onAdjust: (delta: number) => void }) {
-  return (
-    <div className="flex items-center gap-1">
-      {[-10, -1, 1, 10].map((d) => (
-        <Button
-          key={d}
-          variant="outline"
-          size="icon-xs"
-          aria-label={d > 0 ? `Add ${d}` : `Remove ${-d}`}
-          onClick={() => onAdjust(d)}
-        >
-          {Math.abs(d) === 1 ? (d > 0 ? <Plus /> : <Minus />) : d > 0 ? `+${d}` : `${d}`}
-        </Button>
-      ))}
-    </div>
-  )
+const COLORS: Record<ContainerColor, { dot: string; border: string; tint: string }> = {
+  red: { dot: "bg-red-500", border: "border-red-500/40", tint: "bg-red-500/10" },
+  orange: { dot: "bg-orange-500", border: "border-orange-500/40", tint: "bg-orange-500/10" },
+  amber: { dot: "bg-amber-500", border: "border-amber-500/40", tint: "bg-amber-500/10" },
+  green: { dot: "bg-green-500", border: "border-green-500/40", tint: "bg-green-500/10" },
+  teal: { dot: "bg-teal-500", border: "border-teal-500/40", tint: "bg-teal-500/10" },
+  sky: { dot: "bg-sky-500", border: "border-sky-500/40", tint: "bg-sky-500/10" },
+  blue: { dot: "bg-blue-500", border: "border-blue-500/40", tint: "bg-blue-500/10" },
+  violet: { dot: "bg-violet-500", border: "border-violet-500/40", tint: "bg-violet-500/10" },
+  pink: { dot: "bg-pink-500", border: "border-pink-500/40", tint: "bg-pink-500/10" },
 }
 
-type MoveItem = (id: string, containerId: string | null) => void
+const Dot = ({ color, className }: { color?: ContainerColor; className?: string }) => (
+  <span className={cn("inline-block size-2.5 shrink-0 rounded-full", color ? COLORS[color].dot : "bg-muted-foreground/50", className)} />
+)
 
-function ItemActions({ item, containers, move }: { item: InventoryItem; containers: InventoryContainer[]; move: MoveItem }) {
-  const targets = [
-    ...containers.filter((c) => c.id !== item.containerId).map((c) => ({ id: c.id as string | null, name: c.name })),
-    ...(item.containerId ? [{ id: null, name: "Unassigned" }] : []),
-  ]
+function QtyStepper({ item, adjust }: { item: InventoryItem; adjust: (id: string, delta: number) => void }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`Move ${item.name}`} />}>
-        <MoreHorizontal />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <div className="px-2 py-1 text-xs text-muted-foreground">Move to…</div>
-        {targets.map((t) => (
-          <DropdownMenuItem key={t.id ?? "unassigned"} onClick={() => move(item.id, t.id)}>
-            {t.name}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div className="flex items-center gap-1">
+      <Button variant="outline" size="icon-xs" aria-label={`Decrease ${item.name}`} disabled={item.quantity <= 0} onClick={() => adjust(item.id, -1)}>
+        <Minus />
+      </Button>
+      <span className="min-w-16 text-center text-xs tabular-nums">
+        {item.quantity} {item.unit}
+      </span>
+      <Button variant="outline" size="icon-xs" aria-label={`Increase ${item.name}`} disabled={item.quantity >= item.capacity} onClick={() => adjust(item.id, 1)}>
+        <Plus />
+      </Button>
+    </div>
   )
 }
 
 function FillBar({ item }: { item: InventoryItem }) {
   const pct = Math.min(100, (item.quantity / item.capacity) * 100)
   return (
-    <div>
-      <div className="flex justify-between text-xs text-muted-foreground">
-        <span>
-          {item.quantity} {item.unit}
-        </span>
-        <span>{Math.round(pct)}%</span>
-      </div>
-      <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-muted">
-        <div
-          className={item.quantity <= item.capacity * 0.15 ? "h-full bg-destructive" : "h-full bg-primary"}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
+    <div className="h-1.5 overflow-hidden rounded-full bg-muted" title={`${Math.round(pct)}% of ${item.capacity}`}>
+      <div className={item.quantity <= item.capacity * 0.15 ? "h-full bg-destructive" : "h-full bg-primary"} style={{ width: `${pct}%` }} />
     </div>
   )
 }
 
-function ItemCard({
+function ItemMenu({
   item,
-  adjust,
   containers,
   move,
+  onDelete,
 }: {
   item: InventoryItem
-  adjust: (id: string, delta: number) => void
   containers: InventoryContainer[]
   move: MoveItem
+  onDelete: () => void
 }) {
+  const targets = [
+    ...containers.filter((c) => c.id !== item.containerId).map((c) => ({ id: c.id as string | null, name: c.name, color: c.color as ContainerColor | undefined })),
+    ...(item.containerId ? [{ id: null, name: "Unassigned", color: undefined }] : []),
+  ]
   return (
-    <div className="rounded-xl border border-border bg-card p-3">
-      <div className="flex items-start justify-between gap-2">
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`Actions for ${item.name}`} />}>
+        <MoreHorizontal />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        <div className="px-2 py-1 text-xs text-muted-foreground">Move to…</div>
+        {targets.map((t) => (
+          <DropdownMenuItem key={t.id ?? UNASSIGNED} onClick={() => move(item.id, t.id)}>
+            <Dot color={t.color} /> {t.name}
+          </DropdownMenuItem>
+        ))}
+        <div className="my-1 h-px bg-border" />
+        <DropdownMenuItem onClick={onDelete} className="text-destructive">
+          <Trash2 /> Delete item
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+type RowProps = {
+  item: InventoryItem
+  containers: InventoryContainer[]
+  adjust: (id: string, delta: number) => void
+  move: MoveItem
+  askDelete: (c: Confirm) => void
+}
+
+function ItemRow({ item, containers, adjust, move, askDelete, onDragStart }: RowProps & { onDragStart: () => void }) {
+  return (
+    <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", item.id)
+        e.dataTransfer.effectAllowed = "move"
+        onDragStart()
+      }}
+      className="cursor-grab rounded-lg border border-border bg-background/60 p-2.5 active:cursor-grabbing"
+    >
+      <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">{item.name}</div>
-          <div className="text-xs text-muted-foreground">
-            {item.category} · lv{item.level}
-          </div>
+          <div className="text-xs text-muted-foreground">{item.category}</div>
         </div>
         <div className="flex items-center gap-1">
-          <QtyControls onAdjust={(d) => adjust(item.id, d)} />
-          <ItemActions item={item} containers={containers} move={move} />
+          <QtyStepper item={item} adjust={adjust} />
+          <ItemMenu item={item} containers={containers} move={move} onDelete={() => askDelete({ kind: "item", id: item.id, name: item.name })} />
         </div>
       </div>
-      <div className="mt-3">
+      <div className="mt-2">
         <FillBar item={item} />
       </div>
     </div>
   )
 }
 
-function ItemsSkeleton({ mode }: { mode: ViewMode }) {
-  if (mode === "table") {
-    return (
-      <div className="space-y-2 rounded-xl border border-border bg-card p-3">
-        <Skeleton className="h-5 w-full" />
-        {Array.from({ length: 6 }, (_, i) => (
-          <Skeleton key={i} className="h-9 w-full" />
+function ContainerBox({
+  container,
+  items,
+  onAdd,
+  dropTarget,
+  setDropTarget,
+  onDropItem,
+  ...rowProps
+}: Omit<RowProps, "item"> & {
+  container?: InventoryContainer
+  items: InventoryItem[]
+  onAdd: () => void
+  dropTarget: boolean
+  setDropTarget: (on: boolean) => void
+  onDropItem: (itemId: string) => void
+}) {
+  const key = container?.id ?? UNASSIGNED
+  return (
+    <section
+      onDragOver={(e) => {
+        e.preventDefault()
+        setDropTarget(true)
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget(false)
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDropTarget(false)
+        const id = e.dataTransfer.getData("text/plain")
+        if (id) onDropItem(id)
+      }}
+      className={cn(
+        "flex flex-col rounded-xl border bg-card",
+        container ? COLORS[container.color].border : "border-dashed border-border",
+        dropTarget && "ring-2 ring-primary",
+      )}
+      data-container={key}
+    >
+      <header className={cn("flex items-center gap-2 rounded-t-xl px-3 py-2.5", container && COLORS[container.color].tint)}>
+        <Dot color={container?.color} />
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-sm font-semibold">{container?.name ?? "Unassigned"}</h2>
+          <p className="truncate text-xs text-muted-foreground">
+            {[container?.location, `${items.length} item${items.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
+          </p>
+        </div>
+        <Button variant="ghost" size="icon-xs" aria-label={`Add item to ${container?.name ?? "Unassigned"}`} onClick={onAdd}>
+          <Plus />
+        </Button>
+        {container && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`Delete ${container.name}`}
+            title={items.length ? "Move or delete its items first" : "Delete container"}
+            disabled={items.length > 0}
+            onClick={() => rowProps.askDelete({ kind: "container", id: container.id, name: container.name })}
+          >
+            <Trash2 />
+          </Button>
+        )}
+      </header>
+      <div className="flex-1 space-y-2 p-2.5">
+        {items.map((item) => (
+          <ItemRow key={item.id} item={item} {...rowProps} onDragStart={() => undefined} />
         ))}
+        {items.length === 0 && (
+          <p className="rounded-lg border border-dashed border-border py-6 text-center text-xs text-muted-foreground">
+            Empty — drop items here
+          </p>
+        )}
       </div>
+    </section>
+  )
+}
+
+function InventoryTable({
+  filter,
+  containers,
+  groups,
+  items,
+  ...rowProps
+}: Omit<RowProps, "item"> & {
+  filter: TableFilter
+  groups: { container?: InventoryContainer; items: InventoryItem[] }[]
+  items: InventoryItem[]
+}) {
+  const byId = new Map(containers.map((c) => [c.id, c]))
+  const itemRow = (item: InventoryItem, showContainer: boolean) => {
+    const c = item.containerId ? byId.get(item.containerId) : undefined
+    return (
+      <tr key={item.id}>
+        <td className="px-3 py-2 font-medium">{item.name}</td>
+        <td className="px-3 py-2 text-muted-foreground">{item.category}</td>
+        {showContainer && (
+          <td className="px-3 py-2">
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <Dot color={c?.color} /> {c?.name ?? "Unassigned"}
+            </span>
+          </td>
+        )}
+        <td className="w-36 px-3 py-2">
+          <FillBar item={item} />
+        </td>
+        <td className="px-3 py-2">
+          <div className="flex items-center justify-end gap-1">
+            <QtyStepper item={item} adjust={rowProps.adjust} />
+            <ItemMenu
+              item={item}
+              containers={containers}
+              move={rowProps.move}
+              onDelete={() => rowProps.askDelete({ kind: "item", id: item.id, name: item.name })}
+            />
+          </div>
+        </td>
+      </tr>
     )
   }
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {Array.from({ length: 6 }, (_, i) => (
-        <div key={i} className="rounded-xl border border-border bg-card p-3">
-          <div className="flex items-start justify-between gap-2">
-            <div className="space-y-1.5">
-              <Skeleton className="h-4 w-28" />
-              <Skeleton className="h-3 w-20" />
-            </div>
-            <Skeleton className="h-6 w-24" />
-          </div>
-          <div className="mt-3 space-y-1.5">
-            <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-1.5 w-full" />
-          </div>
-        </div>
-      ))}
-    </div>
+  const head = (cols: string[]) => (
+    <thead>
+      <tr className="border-b border-border text-left text-xs text-muted-foreground">
+        {cols.map((c, i) => (
+          <th key={i} className="px-3 py-2 font-medium">
+            {c}
+          </th>
+        ))}
+      </tr>
+    </thead>
   )
-}
 
-function ContainersSkeleton() {
-  return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-      {Array.from({ length: 8 }, (_, i) => (
-        <div key={i} className="space-y-2 rounded-xl border border-border bg-card p-4">
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="mt-3 h-3 w-12" />
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function ItemTable({
-  items,
-  adjust,
-  showContainer,
-  containers,
-  move,
-}: {
-  items: InventoryItem[]
-  adjust: (id: string, delta: number) => void
-  showContainer: boolean
-  containers: InventoryContainer[]
-  move: MoveItem
-}) {
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-card">
       <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border text-left text-xs text-muted-foreground">
-            <th className="px-3 py-2 font-medium">Item</th>
-            <th className="px-3 py-2 font-medium">Category</th>
-            {showContainer && <th className="px-3 py-2 font-medium">Container</th>}
-            <th className="w-40 px-3 py-2 font-medium">Stock</th>
-            <th className="px-3 py-2 font-medium" />
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {items.map((item) => (
-            <tr key={item.id}>
-              <td className="px-3 py-2 font-medium">{item.name}</td>
-              <td className="px-3 py-2 text-muted-foreground">{item.category}</td>
-              {showContainer && <td className="px-3 py-2 text-muted-foreground">{item.containerId ?? "—"}</td>}
-              <td className="px-3 py-2">
-                <FillBar item={item} />
-              </td>
-              <td className="px-3 py-2">
-                <div className="flex items-center gap-1">
-                  <QtyControls onAdjust={(d) => adjust(item.id, d)} />
-                  <ItemActions item={item} containers={containers} move={move} />
-                </div>
-              </td>
-            </tr>
-          ))}
-          {items.length === 0 && (
-            <tr>
-              <td colSpan={showContainer ? 5 : 4} className="px-3 py-8 text-center text-sm text-muted-foreground">
-                No items.
-              </td>
-            </tr>
-          )}
-        </tbody>
+        {filter === "containers" ? (
+          <>
+            {head(["Container", "Location", "Items", ""])}
+            <tbody className="divide-y divide-border">
+              {containers.map((c) => {
+                const count = groups.find((g) => g.container?.id === c.id)?.items.length ?? 0
+                return (
+                  <tr key={c.id}>
+                    <td className="px-3 py-2 font-medium">
+                      <span className="inline-flex items-center gap-2">
+                        <Dot color={c.color} /> {c.name}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">{c.location || "—"}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{count}</td>
+                    <td className="px-3 py-2 text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={`Delete ${c.name}`}
+                        title={count ? "Move or delete its items first" : "Delete container"}
+                        disabled={count > 0}
+                        onClick={() => rowProps.askDelete({ kind: "container", id: c.id, name: c.name })}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </>
+        ) : filter === "items" ? (
+          <>
+            {head(["Item", "Category", "Container", "Stock", ""])}
+            <tbody className="divide-y divide-border">{items.map((i) => itemRow(i, true))}</tbody>
+          </>
+        ) : (
+          <>
+            {head(["Item", "Category", "Stock", ""])}
+            {groups.map((g) => (
+              <tbody key={g.container?.id ?? UNASSIGNED} className="divide-y divide-border border-b border-border">
+                <tr className={cn(g.container && COLORS[g.container.color].tint)}>
+                  <td colSpan={4} className="px-3 py-1.5 text-xs font-semibold">
+                    <span className="inline-flex items-center gap-2">
+                      <Dot color={g.container?.color} /> {g.container?.name ?? "Unassigned"}
+                      <span className="font-normal text-muted-foreground">{g.items.length} items</span>
+                    </span>
+                  </td>
+                </tr>
+                {g.items.map((i) => itemRow(i, false))}
+              </tbody>
+            ))}
+          </>
+        )}
       </table>
     </div>
   )
 }
 
+function ContainerSelect({ value, onChange, containers }: { value: string; onChange: (v: string) => void; containers: InventoryContainer[] }) {
+  const selected = containers.find((c) => c.id === value)
+  return (
+    <Select value={value} onValueChange={(v) => onChange(String(v ?? UNASSIGNED))}>
+      <SelectTrigger className="w-full" aria-label="Container">
+        <SelectValue>
+          {() => (
+            <span className="flex items-center gap-2">
+              <Dot color={selected?.color} /> {selected?.name ?? "Unassigned"}
+            </span>
+          )}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {containers.map((c) => (
+          <SelectItem key={c.id} value={c.id}>
+            <Dot color={c.color} /> {c.name}
+          </SelectItem>
+        ))}
+        <SelectItem value={UNASSIGNED}>
+          <Dot /> Unassigned
+        </SelectItem>
+      </SelectContent>
+    </Select>
+  )
+}
+
+const emptyItem = { name: "", category: "General", unit: "units", quantity: "0", capacity: "" }
+
 function AddItemSheet({
-  open,
-  onOpenChange,
-  containers,
   containerId,
+  onClose,
+  containers,
   onDone,
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  containers: InventoryContainer[]
   containerId?: string
-  onDone: () => void
+  onClose: () => void
+  containers: InventoryContainer[]
+  onDone: (item: InventoryItem) => void
 }) {
-  const [form, setForm] = useState({ name: "", category: "General", unit: "units", quantity: "0", capacity: "", containerId: "" })
+  const [form, setForm] = useState(emptyItem)
+  const [target, setTarget] = useState(containerId ?? containers[0]?.id ?? UNASSIGNED)
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    if (open) setForm((f) => ({ ...f, containerId: containerId ?? "" }))
-  }, [open, containerId])
 
   const submit = async () => {
     setBusy(true)
     setError(undefined)
     try {
-      await createItem({
+      const item = await createItem({
         name: form.name.trim(),
         category: form.category.trim() || "General",
         unit: form.unit.trim() || "units",
         quantity: Number(form.quantity) || 0,
         capacity: Number(form.capacity),
-        containerId: form.containerId || null,
+        containerId: target === UNASSIGNED ? null : target,
       })
-      onOpenChange(false)
-      setForm({ name: "", category: "General", unit: "units", quantity: "0", capacity: "", containerId: "" })
-      onDone()
+      onDone(item)
+      onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to add item")
     } finally {
@@ -276,13 +405,14 @@ function AddItemSheet({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open onOpenChange={(o) => o || onClose()}>
       <SheetContent>
         <SheetHeader>
           <SheetTitle>Add item</SheetTitle>
-          <SheetDescription>Stock a new resource in the inventory.</SheetDescription>
+          <SheetDescription>Stock a new resource in a container.</SheetDescription>
         </SheetHeader>
         <div className="space-y-3 p-4">
+          <ContainerSelect value={target} onChange={setTarget} containers={containers} />
           <Input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <Input placeholder="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
           <div className="grid grid-cols-3 gap-2">
@@ -290,18 +420,6 @@ function AddItemSheet({
             <Input placeholder="Qty" type="number" min={0} value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} />
             <Input placeholder="Capacity" type="number" min={1} value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} />
           </div>
-          <select
-            value={form.containerId}
-            onChange={(e) => setForm({ ...form, containerId: e.target.value })}
-            className={cn(inputCls, "h-9")}
-          >
-            <option value="">No container</option>
-            {containers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
           {error && <Banner text={error} tone="error" />}
           <Button onClick={submit} disabled={busy || !form.name.trim() || !form.capacity}>
             Add item
@@ -312,8 +430,9 @@ function AddItemSheet({
   )
 }
 
-function AddContainerSheet({ open, onOpenChange, onDone }: { open: boolean; onOpenChange: (open: boolean) => void; onDone: () => void }) {
+function AddContainerSheet({ onClose, onDone, used }: { onClose: () => void; onDone: (c: InventoryContainer) => void; used: ContainerColor[] }) {
   const [form, setForm] = useState({ name: "", description: "", location: "" })
+  const [color, setColor] = useState<ContainerColor>(CONTAINER_COLORS.find((c) => !used.includes(c)) ?? "blue")
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
 
@@ -321,10 +440,9 @@ function AddContainerSheet({ open, onOpenChange, onDone }: { open: boolean; onOp
     setBusy(true)
     setError(undefined)
     try {
-      await createContainer({ name: form.name.trim(), description: form.description.trim(), location: form.location.trim() })
-      onOpenChange(false)
-      setForm({ name: "", description: "", location: "" })
-      onDone()
+      const created = await createContainer({ name: form.name.trim(), description: form.description.trim(), location: form.location.trim(), color })
+      onDone(created)
+      onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to add container")
     } finally {
@@ -333,7 +451,7 @@ function AddContainerSheet({ open, onOpenChange, onDone }: { open: boolean; onOp
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open onOpenChange={(o) => o || onClose()}>
       <SheetContent>
         <SheetHeader>
           <SheetTitle>Add container</SheetTitle>
@@ -343,6 +461,18 @@ function AddContainerSheet({ open, onOpenChange, onDone }: { open: boolean; onOp
           <Input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <Input placeholder="Location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
           <Input placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Color">
+            {CONTAINER_COLORS.map((c) => (
+              <button
+                key={c}
+                role="radio"
+                aria-checked={color === c}
+                aria-label={c}
+                onClick={() => setColor(c)}
+                className={cn("size-7 rounded-full ring-offset-2 ring-offset-background", COLORS[c].dot, color === c && "ring-2 ring-foreground")}
+              />
+            ))}
+          </div>
           {error && <Banner text={error} tone="error" />}
           <Button onClick={submit} disabled={busy || !form.name.trim()}>
             Add container
@@ -353,196 +483,208 @@ function AddContainerSheet({ open, onOpenChange, onDone }: { open: boolean; onOp
   )
 }
 
+function BoxesSkeleton() {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {Array.from({ length: 3 }, (_, i) => (
+        <div key={i} className="space-y-2 rounded-xl border border-border bg-card p-3">
+          <Skeleton className="h-5 w-40" />
+          {Array.from({ length: 3 }, (_, j) => (
+            <Skeleton key={j} className="h-14 w-full" />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function InventoryPage() {
-  const { containerId } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
-  const mode: ViewMode = searchParams.get("view") === "table" ? "table" : "grid"
-  const setMode = (m: ViewMode) => setSearchParams(m === "table" ? { view: "table" } : {}, { replace: true })
-  const navigate = useNavigate()
-  const [sheet, setSheet] = useState<"item" | "container" | "delete" | null>(null)
-  const [deleting, setDeleting] = useState(false)
+  const mode: ViewMode = searchParams.get("view") === "table" ? "table" : "box"
+  const show = (["containers", "items"] as const).find((f) => f === searchParams.get("show")) ?? "all"
+  const setParams = (view: ViewMode, filter: TableFilter) =>
+    setSearchParams(view === "table" ? { view, ...(filter !== "all" && { show: filter }) } : {}, { replace: true })
+
+  const [sheet, setSheet] = useState<{ kind: "item"; containerId?: string } | { kind: "container" } | null>(null)
+  const [confirm, setConfirm] = useState<Confirm | null>(null)
+  const [dropTarget, setDropTarget] = useState<string>()
   const [error, setError] = useState<string>()
 
-  const containers = useApi(() => listContainers(), [])
-  const container = useApi(() => (containerId ? getContainer(containerId) : Promise.resolve(undefined)), [containerId])
-  const items = useApi(() => listInventory({ container: containerId ?? "unassigned" }), [containerId])
+  const containersApi = useApi(() => listContainers(), [])
+  const itemsApi = useApi(() => listInventory(), [])
+  const containers = containersApi.data ?? []
+  const items = itemsApi.data ?? []
+  const loading = (containersApi.loading && !containersApi.data) || (itemsApi.loading && !itemsApi.data)
 
-  const reload = () => {
-    containers.reload()
-    container.reload()
-    items.reload()
-  }
+  const groups = [
+    ...containers.map((c) => ({ container: c as InventoryContainer | undefined, items: items.filter((i) => i.containerId === c.id) })),
+    ...(items.some((i) => !i.containerId) ? [{ container: undefined, items: items.filter((i) => !i.containerId) }] : []),
+  ]
+
+  const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e))
+  const replaceItem = (updated: InventoryItem) => itemsApi.setData((d) => d?.map((i) => (i.id === updated.id ? updated : i)))
 
   const adjust = async (id: string, delta: number) => {
     try {
-      const updated = await updateInventoryItem(id, { delta })
-      items.setData((d) => d?.map((i) => (i.id === id ? updated : i)))
-      container.setData((d) => (d ? { ...d, items: d.items.map((i) => (i.id === id ? updated : i)) } : d))
+      replaceItem(await updateInventoryItem(id, { delta }))
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      fail(e)
     }
   }
 
-  const move: MoveItem = async (id, target) => {
+  const move: MoveItem = async (id, containerId) => {
+    const item = items.find((i) => i.id === id)
+    if (!item || item.containerId === containerId) return
+    replaceItem({ ...item, containerId })
     try {
-      await updateInventoryItem(id, { containerId: target })
-      items.setData((d) => d?.filter((i) => i.id !== id))
-      container.setData((d) => (d ? { ...d, items: d.items.filter((i) => i.id !== id) } : d))
-      containers.reload()
+      replaceItem(await updateInventoryItem(id, { containerId }))
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      replaceItem(item)
+      fail(e)
     }
   }
 
-  const removeContainer = async () => {
-    if (!containerId) return
-    setDeleting(true)
+  const runConfirm = async () => {
+    if (!confirm) return
     try {
-      await deleteContainer(containerId)
-      setSheet(null)
-      navigate("/inventory", { replace: true })
-      containers.reload()
+      if (confirm.kind === "item") {
+        await deleteItem(confirm.id)
+        itemsApi.setData((d) => d?.filter((i) => i.id !== confirm.id))
+      } else {
+        await deleteContainer(confirm.id)
+        containersApi.setData((d) => d?.filter((c) => c.id !== confirm.id))
+      }
+      setConfirm(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setDeleting(false)
+      setConfirm(null)
+      fail(e)
     }
   }
 
-  const unassigned = items.data ?? []
-  const visibleItems = containerId ? (container.data?.items ?? items.data ?? []) : []
+  const rowProps = { containers, adjust, move, askDelete: setConfirm }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-          <Link to="/inventory" className={cn(!containerId || "text-muted-foreground hover:text-foreground")}>
-            Stockpile
-          </Link>
-          {containerId && (
-            <>
-              <ChevronRight className="size-4 text-muted-foreground" />
-              {container.loading && !container.data ? (
-                <Skeleton className="h-6 w-32" />
-              ) : (
-                <span>{container.data?.name ?? (containerId === "unassigned" ? "Unassigned" : containerId)}</span>
-              )}
-            </>
-          )}
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Stockpile</h1>
+          <p className="text-sm text-muted-foreground">
+            {containers.length} containers · {items.length} items
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          {containerId && (
           <div className="flex rounded-lg border border-border p-0.5">
             <button
-              aria-label="Grid view"
-              onClick={() => setMode("grid")}
-              className={cn("rounded-md p-1.5 text-muted-foreground", mode === "grid" && "bg-accent text-foreground")}
+              aria-label="Box view"
+              onClick={() => setParams("box", show)}
+              className={cn("rounded-md p-1.5 text-muted-foreground", mode === "box" && "bg-accent text-foreground")}
             >
               <LayoutGrid className="size-4" />
             </button>
             <button
               aria-label="Table view"
-              onClick={() => setMode("table")}
+              onClick={() => setParams("table", show)}
               className={cn("rounded-md p-1.5 text-muted-foreground", mode === "table" && "bg-accent text-foreground")}
             >
               <Table2 className="size-4" />
             </button>
           </div>
-          )}
-          {container.data && (
-            <Button variant="outline" onClick={() => setSheet("delete")}>
-              <Trash2 /> Delete
-            </Button>
-          )}
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="outline"><Plus /> Add</Button>} />
             <DropdownMenuContent>
-              <DropdownMenuItem onClick={() => setSheet("item")}>
+              <DropdownMenuItem onClick={() => setSheet({ kind: "item" })}>
                 <PackageOpen /> Add item
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSheet("container")}>Add container</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSheet({ kind: "container" })}>
+                <LayoutGrid /> Add container
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
 
       {error && <Banner text={error} tone="error" />}
-      {items.error && <Banner text={items.error.message} tone="error" />}
+      {(containersApi.error || itemsApi.error) && <Banner text={(containersApi.error ?? itemsApi.error)!.message} tone="error" />}
 
-      {!containerId && (containers.loading && !containers.data ? (
-        <ContainersSkeleton />
-      ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-          {containers.data?.map((c) => (
-            <Link
-              key={c.id}
-              to={`/inventory/${c.id}`}
-              className="rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/50"
+      {mode === "table" && (
+        <div className="flex w-fit rounded-lg border border-border p-0.5 text-sm">
+          {(["all", "containers", "items"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setParams("table", f)}
+              className={cn("rounded-md px-3 py-1 capitalize text-muted-foreground", show === f && "bg-accent text-foreground")}
             >
-              <div className="text-sm font-medium">{c.name}</div>
-              <div className="mt-0.5 text-xs text-muted-foreground">{c.location || "—"}</div>
-              <div className="mt-2 text-xs text-muted-foreground">{c.itemCount ?? 0} items</div>
-            </Link>
+              {f}
+            </button>
           ))}
-          {unassigned.length > 0 && (
-            <Link
-              to="/inventory/unassigned"
-              className="rounded-xl border border-dashed border-border bg-card p-4 text-left transition-colors hover:border-primary/50"
-            >
-              <div className="text-sm font-medium text-muted-foreground">Unassigned</div>
-              <div className="mt-2 text-xs text-muted-foreground">{unassigned.length} items</div>
-            </Link>
-          )}
         </div>
-      ))}
+      )}
 
-      {containerId &&
-        (items.loading && !items.data ? (
-          <ItemsSkeleton mode={mode} />
-        ) : mode === "grid" ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {visibleItems.map((item) => (
-              <ItemCard key={item.id} item={item} adjust={adjust} containers={containers.data ?? []} move={move} />
-            ))}
-          </div>
+      {loading ? (
+        mode === "box" ? (
+          <BoxesSkeleton />
         ) : (
-          <ItemTable
-            items={visibleItems}
-            adjust={adjust}
-            showContainer={containerId === "unassigned"}
-            containers={containers.data ?? []}
-            move={move}
-          />
-        ))}
+          <Skeleton className="h-64 w-full rounded-xl" />
+        )
+      ) : mode === "box" ? (
+        <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {groups.map((g) => {
+            const key = g.container?.id ?? UNASSIGNED
+            return (
+              <ContainerBox
+                key={key}
+                container={g.container}
+                items={g.items}
+                onAdd={() => setSheet({ kind: "item", containerId: g.container?.id ?? UNASSIGNED })}
+                dropTarget={dropTarget === key}
+                setDropTarget={(on) => setDropTarget(on ? key : undefined)}
+                onDropItem={(id) => move(id, g.container?.id ?? null)}
+                {...rowProps}
+              />
+            )
+          })}
+          {groups.length === 0 && <p className="text-sm text-muted-foreground">No containers yet. Add one to start stocking.</p>}
+        </div>
+      ) : (
+        <InventoryTable filter={show} groups={groups} items={items} {...rowProps} />
+      )}
 
-      <AddItemSheet
-        open={sheet === "item"}
-        onOpenChange={(o) => setSheet(o ? "item" : null)}
-        containers={containers.data ?? []}
-        containerId={containerId === "unassigned" ? undefined : containerId}
-        onDone={reload}
-      />
-      <Sheet open={sheet === "delete"} onOpenChange={(o) => setSheet(o ? "delete" : null)}>
+      {sheet?.kind === "item" && (
+        <AddItemSheet
+          containerId={sheet.containerId}
+          containers={containers}
+          onClose={() => setSheet(null)}
+          onDone={(item) => itemsApi.setData((d) => [...(d ?? []), item])}
+        />
+      )}
+      {sheet?.kind === "container" && (
+        <AddContainerSheet
+          used={containers.map((c) => c.color)}
+          onClose={() => setSheet(null)}
+          onDone={(c) => containersApi.setData((d) => [...(d ?? []), c])}
+        />
+      )}
+
+      <Sheet open={!!confirm} onOpenChange={(o) => o || setConfirm(null)}>
         <SheetContent>
           <SheetHeader>
-            <SheetTitle>Delete {container.data?.name}?</SheetTitle>
+            <SheetTitle>Delete {confirm?.name}?</SheetTitle>
             <SheetDescription>
-              {visibleItems.length > 0
-                ? `Its ${visibleItems.length} item${visibleItems.length === 1 ? "" : "s"} will move to Unassigned, not be deleted.`
-                : "This container is empty."}
+              {confirm?.kind === "item"
+                ? "The item is removed from the stockpile and from any plan steps that need it."
+                : "The empty container is removed."}
             </SheetDescription>
           </SheetHeader>
           <div className="flex gap-2 p-4">
-            <Button variant="destructive" onClick={removeContainer} disabled={deleting}>
-              <Trash2 /> Delete container
+            <Button variant="destructive" onClick={runConfirm}>
+              <Trash2 /> Delete
             </Button>
-            <Button variant="outline" onClick={() => setSheet(null)}>
+            <Button variant="outline" onClick={() => setConfirm(null)}>
               Cancel
             </Button>
           </div>
         </SheetContent>
       </Sheet>
-      <AddContainerSheet open={sheet === "container"} onOpenChange={(o) => setSheet(o ? "container" : null)} onDone={reload} />
     </div>
   )
 }

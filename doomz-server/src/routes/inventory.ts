@@ -6,8 +6,10 @@ import { validate } from "../lib/validate";
 import {
   consumeItems,
   createContainer,
+  CONTAINER_COLORS,
   createItem,
   deleteContainer,
+  deleteInventoryItem,
   getContainer,
   listContainers,
   listInventory,
@@ -51,6 +53,7 @@ const createContainerSchema = z.object({
   name: z.string().trim().min(1).max(100),
   description: z.string().max(2000).optional(),
   location: z.string().max(200).optional(),
+  color: z.enum(CONTAINER_COLORS).optional(),
 });
 
 export function inventoryRoutes({ db }: AppDeps) {
@@ -63,6 +66,11 @@ export function inventoryRoutes({ db }: AppDeps) {
     })
     .patch("/items/:id", validate("json", patchSchema), async (c) => {
       return c.json(await updateInventoryItem(db, c.req.param("id"), c.req.valid("json")));
+    })
+    .delete("/items/:id", async (c) => {
+      const id = c.req.param("id");
+      if (!(await db.transaction((tx) => deleteInventoryItem(tx, id)))) throw notFound("Inventory item");
+      return c.body(null, 204);
     })
     .get("/containers", async (c) => {
       return c.json(await listContainers(db));

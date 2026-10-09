@@ -54,8 +54,8 @@ export const SEED_RECIPES: [string, string, string][] = [
 ];
 
 export const SEED_CONTAINERS = [
-  { id: "main-crate", name: "Main Storage Crate", description: "General-purpose stockpile crate.", location: "Shelter floor" },
-  { id: "med-cabinet", name: "Medical Cabinet", description: "Locked cabinet for triage supplies.", location: "Shelter wall" },
+  { id: "main-crate", name: "Main Storage Crate", description: "General-purpose stockpile crate.", location: "Shelter floor", color: "amber" },
+  { id: "med-cabinet", name: "Medical Cabinet", description: "Locked cabinet for triage supplies.", location: "Shelter wall", color: "red" },
 ];
 
 const CONTAINER_FOR_CATEGORY: Record<string, string> = { Medical: "med-cabinet" };
@@ -114,9 +114,9 @@ export async function seed(db: PGlite) {
 async function seedInventory(tx: Transaction) {
   for (const c of SEED_CONTAINERS) {
     await tx.query(
-      `INSERT INTO inventory_containers (id, name, description, location)
-       VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
-      [c.id, c.name, c.description, c.location],
+      `INSERT INTO inventory_containers (id, name, description, location, color)
+       VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
+      [c.id, c.name, c.description, c.location, c.color],
     );
   }
   for (const i of SEED_INVENTORY) {

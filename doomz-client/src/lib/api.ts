@@ -85,7 +85,11 @@ export type InventoryItem = {
   updatedAt: string;
 };
 
+export const CONTAINER_COLORS = ["red", "orange", "amber", "green", "teal", "sky", "blue", "violet", "pink"] as const;
+export type ContainerColor = (typeof CONTAINER_COLORS)[number];
+
 export type InventoryContainer = {
+  color: ContainerColor;
   id: string;
   name: string;
   description: string;
@@ -204,8 +208,9 @@ export const updateInventoryItem = (
 export const listContainers = () => request<InventoryContainer[]>("/api/inventory/containers");
 export const getContainer = (id: string) =>
   request<InventoryContainer & { items: InventoryItem[] }>(`/api/inventory/containers/${id}`);
-export const createContainer = (input: { id?: string; name: string; description?: string; location?: string }) =>
+export const createContainer = (input: { id?: string; name: string; description?: string; location?: string; color?: ContainerColor }) =>
   request<InventoryContainer>("/api/inventory/containers", { method: "POST", ...json(input) });
+export const deleteItem = (id: string) => request<void>(`/api/inventory/items/${id}`, { method: "DELETE" });
 export const deleteContainer = (id: string) => request<void>(`/api/inventory/containers/${id}`, { method: "DELETE" });
 export const consumeItems = (items: RequiredItem[]) =>
   request<{ items: InventoryItem[] }>("/api/inventory/consume", { method: "POST", ...json({ items }) });

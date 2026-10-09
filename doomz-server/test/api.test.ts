@@ -310,17 +310,31 @@ describe("chat", () => {
 });
 
 describe("containers", () => {
-  test("deleting a container unassigns its items, and items can move between containers", async () => {
+  test("containers can only be deleted when empty, items move and delete", async () => {
     await req("POST", "/api/inventory/containers", { id: "go-bag", name: "Go Bag" });
     const moved = await req("PATCH", "/api/inventory/items/water", { containerId: "go-bag" });
     expect(await moved.json()).toMatchObject({ id: "water", containerId: "go-bag" });
     expect((await (await req("GET", "/api/inventory/containers/go-bag")).json()).items.map((i: { id: string }) => i.id)).toEqual(["water"]);
 
+    expect((await req("DELETE", "/api/inventory/containers/go-bag")).status).toBe(409);
+    await req("PATCH", "/api/inventory/items/water", { containerId: "main-crate" });
     expect((await req("DELETE", "/api/inventory/containers/go-bag")).status).toBe(204);
     expect((await req("DELETE", "/api/inventory/containers/go-bag")).status).toBe(404);
     expect((await req("GET", "/api/inventory/containers/go-bag")).status).toBe(404);
-    const unassigned = await (await req("GET", "/api/inventory?container=unassigned")).json();
-    expect(unassigned.map((i: { id: string }) => i.id)).toContain("water");
+
+    const plan = await (
+      await req("POST", "/api/plans", { title: "Lash", steps: [{ title: "Tie", requiredItems: [{ itemId: "rope", quantity: 1 }, { itemId: "water", quantity: 1 }] }] })
+    ).json();
+    expect((await req("DELETE", "/api/inventory/items/rope")).status).toBe(204);
+    expect((await req("DELETE", "/api/inventory/items/rope")).status).toBe(404);
+    expect((await (await req("GET", `/api/plans/${plan.id}`)).json()).steps[0].requiredItems).toEqual([{ itemId: "water", quantity: 1 }]);
+  });
+
+  test("containers have colors", async () => {
+    const containers = await (await req("GET", "/api/inventory/containers")).json();
+    expect(containers.find((c: { id: string }) => c.id === "med-cabinet").color).toBe("red");
+    expect(await (await req("POST", "/api/inventory/containers", { name: "Teal Box", color: "teal" })).json()).toMatchObject({ color: "teal" });
+    expect((await req("POST", "/api/inventory/containers", { name: "Bad", color: "plaid" })).status).toBe(400);
   });
 
   test("deleted starter containers are not re-seeded on restart", async () => {
