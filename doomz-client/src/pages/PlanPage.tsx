@@ -51,7 +51,6 @@ export default function PlanPage() {
     setSearchParams(value === "all" ? {} : { status: value }, { replace: true })
   const setPlanId = (id: string) => navigate(`/plan/${id}`)
 
-  const [consume, setConsume] = useState(true)
   const [dragId, setDragId] = useState<string>()
   const [dropTarget, setDropTarget] = useState<PlanStatus>()
   const { data: plans, loading, error, reload } = useApi(() => listPlans(), [])
@@ -114,7 +113,7 @@ export default function PlanPage() {
       p ? { ...p, steps: p.steps.map((s) => (s.id === stepId ? { ...s, status, completed: status === "done" } : s)) } : p,
     )
     try {
-      await togglePlanStep(planId, stepId, { status, consumeItems: consume })
+      await togglePlanStep(planId, stepId, { status })
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Step update failed")
     }
@@ -141,15 +140,6 @@ export default function PlanPage() {
               "Strategy Plans"
             )}
           </div>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={consume}
-              onChange={(e) => setConsume(e.target.checked)}
-              className="size-3.5 accent-primary"
-            />
-            Deduct items when a step completes
-          </label>
         </div>
 
         {error && <Banner text={error.message} tone="error" />}
