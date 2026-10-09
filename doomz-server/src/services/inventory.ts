@@ -9,8 +9,25 @@ export type InventoryItem = {
   quantity: number;
   capacity: number;
   level: number;
+  containerId: string | null;
   updatedAt: Date;
 };
+
+export type InventoryContainer = {
+  id: string;
+  name: string;
+  description: string;
+  location: string;
+  itemCount?: number;
+};
+
+export function slugify(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 50);
+}
 
 export type ItemAmount = { itemId: string; quantity: number };
 
@@ -22,6 +39,7 @@ type Row = {
   quantity: number;
   capacity: number;
   level: number;
+  container_id: string | null;
   updated_at: Date;
 };
 
@@ -33,17 +51,106 @@ const toItem = (r: Row): InventoryItem => ({
   quantity: r.quantity,
   capacity: r.capacity,
   level: r.level,
+  containerId: r.container_id,
   updatedAt: r.updated_at,
 });
 
-export async function listInventory(q: Queryable, category?: string) {
+const toContainer = (r: ContainerRow): InventoryContainer => ({
+  id: r.id,
+  name: r.name,
+  description: r.description,
+  location: r.location,
+  ...(r.item_count !== undefined && { itemCount: r.item_count }),
+});
+
+export type InventoryFilter = { category?: string; container?: string };
+
+export async function listInventory(q: Queryable, filter: InventoryFilter = {}) {
+  const container = filter.container;
   const { rows } = await q.query<Row>(
     `SELECT * FROM inventory_items
      WHERE ($1::text IS NULL OR lower(category) = lower($1))
+       AND ($2::text IS NULL
+         OR ($2 = 'unassigned' AND container_id IS NULL)
+         OR ($2 <> 'unassigned' AND container_id = $2))
      ORDER BY category, name`,
-    [category ?? null],
+    [filter.category ?? null, container ?? null],
   );
   return rows.map(toItem);
+}
+
+type ContainerRow = {
+  id: string;
+  name: string;
+  description: string;
+  location: string;
+  item_count?: number;
+};
+
+export async function listContainers(q: Queryable) {
+  const { rows } = await q.query<ContainerRow>(
+    `SELECT c.*, (SELECT count(*)::int FROM inventory_items i WHERE i.container_id = c.id) AS item_count
+     FROM inventory_containers c ORDER BY c.name`,
+  );
+  return rows.map(toContainer);
+}
+
+export async function getContainer(q: Queryable, id: string) {
+  const { rows } = await q.query<ContainerRow>(`SELECT * FROM inventory_containers WHERE id = $1`, [id]);
+  return rows[0] ? toContainer(rows[0]) : null;
+}
+
+async function assertContainer(q: Queryable, id: string) {
+  const container = await getContainer(q, id);
+  if (!container) throw notFound("Container");
+  return container;
+}
+
+export type ContainerInput = { id?: string; name: string; description?: string; location?: string };
+
+export async function createContainer(q: Queryable, input: ContainerInput) {
+  const id = (input.id?.trim() || slugify(input.name)).toLowerCase();
+  try {
+    const { rows } = await q.query<ContainerRow>(
+      `INSERT INTO inventory_containers (id, name, description, location) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [id, input.name.trim(), input.description ?? "", input.location ?? ""],
+    );
+    return toContainer(rows[0]!);
+  } catch (e) {
+    if (e instanceof Error && /duplicate key/.test(e.message)) throw new AppError(409, "Container id already exists", { id });
+    throw e;
+  }
+}
+
+export type CreateItemInput = {
+  id?: string;
+  name: string;
+  category: string;
+  unit?: string;
+  quantity?: number;
+  capacity: number;
+  level?: number;
+  containerId?: string | null;
+};
+
+export async function createItem(q: Queryable, input: CreateItemInput) {
+  const id = (input.id?.trim() || slugify(input.name)).toLowerCase();
+  const quantity = input.quantity ?? 0;
+  if (quantity > input.capacity) {
+    throw new AppError(409, "Quantity exceeds item capacity", { quantity, capacity: input.capacity });
+  }
+  if (input.containerId) await assertContainer(q, input.containerId);
+  try {
+    const { rows } = await q.query<Row>(
+      `INSERT INTO inventory_items (id, name, category, unit, quantity, capacity, level, container_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [id, input.name.trim(), input.category.trim(), input.unit ?? "units", quantity, input.capacity, input.level ?? 1, input.containerId ?? null],
+    );
+    return toItem(rows[0]!);
+  } catch (e) {
+    if (e instanceof Error && /duplicate key/.test(e.message)) throw new AppError(409, "Item id already exists", { id });
+    throw e;
+  }
 }
 
 export async function getInventoryItem(q: Queryable, id: string) {
@@ -51,7 +158,13 @@ export async function getInventoryItem(q: Queryable, id: string) {
   return rows[0] ? toItem(rows[0]) : null;
 }
 
-export type InventoryPatch = { delta?: number; quantity?: number; capacity?: number; level?: number };
+export type InventoryPatch = {
+  delta?: number;
+  quantity?: number;
+  capacity?: number;
+  level?: number;
+  containerId?: string | null;
+};
 
 export async function updateInventoryItem(q: Queryable, id: string, patch: InventoryPatch) {
   const item = await getInventoryItem(q, id);
@@ -60,6 +173,8 @@ export async function updateInventoryItem(q: Queryable, id: string, patch: Inven
   const capacity = patch.capacity ?? item.capacity;
   const quantity = patch.quantity ?? item.quantity + (patch.delta ?? 0);
   const level = patch.level ?? item.level;
+  const containerId = patch.containerId === undefined ? item.containerId : patch.containerId;
+  if (containerId) await assertContainer(q, containerId);
 
   if (quantity < 0) {
     throw new AppError(409, "Insufficient quantity", { itemId: id, available: item.quantity, requested: -(patch.delta ?? 0) });
@@ -69,9 +184,9 @@ export async function updateInventoryItem(q: Queryable, id: string, patch: Inven
   }
 
   const { rows } = await q.query<Row>(
-    `UPDATE inventory_items SET quantity = $2, capacity = $3, level = $4, updated_at = now()
+    `UPDATE inventory_items SET quantity = $2, capacity = $3, level = $4, container_id = $5, updated_at = now()
      WHERE id = $1 RETURNING *`,
-    [id, quantity, capacity, level],
+    [id, quantity, capacity, level, containerId],
   );
   return toItem(rows[0]!);
 }

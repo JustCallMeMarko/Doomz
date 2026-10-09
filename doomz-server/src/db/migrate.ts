@@ -72,6 +72,22 @@ CREATE TABLE IF NOT EXISTS inventory_items (
   updated_at timestamptz NOT NULL DEFAULT now(),
   CHECK (quantity <= capacity)
 );
+
+CREATE TABLE IF NOT EXISTS app_meta (
+  key   text PRIMARY KEY,
+  value text NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS inventory_containers (
+  id          text PRIMARY KEY,
+  name        text NOT NULL,
+  description text NOT NULL DEFAULT '',
+  location    text NOT NULL DEFAULT '',
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS container_id text REFERENCES inventory_containers(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS inventory_items_container_idx ON inventory_items (container_id);
 `;
 
 export async function migrate(db: PGlite) {
