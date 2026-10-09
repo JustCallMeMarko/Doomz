@@ -17,6 +17,7 @@ import {
   touchThread,
   type ChatThread,
 } from "../services/chat";
+import { createChatTools, TOOLS_PROMPT } from "../services/chat-tools";
 import { listInventory } from "../services/inventory";
 import { createPlan, PLAN_PRIORITIES, type PlanInput } from "../services/plans";
 
@@ -74,6 +75,7 @@ export function chatRoutes({ db, llm }: AppDeps) {
     if (!thread) throw notFound("Thread");
     return thread;
   };
+  const tools = createChatTools(db);
 
   return new Hono()
     .post("/stream", validate("json", streamSchema), async (c) => {
@@ -83,13 +85,13 @@ export function chatRoutes({ db, llm }: AppDeps) {
       const history = existing ? await listMessages(db, existing.id, HISTORY_LIMIT - 1) : [];
 
       const messages: LLMMessage[] = [
-        { role: "system", content: PERSONA_PROMPTS[activePersona] },
+        { role: "system", content: `${PERSONA_PROMPTS[activePersona]}\n\n${TOOLS_PROMPT}` },
         ...history.map((m) => ({ role: m.role, content: m.content })),
         { role: "user", content: message },
       ];
 
       // Pull the first chunk before committing to a 200 so an unreachable model returns a proper error.
-      const iterator = llm.streamChat(messages, c.req.raw.signal)[Symbol.asyncIterator]();
+      const iterator = llm.streamChat(messages, { signal: c.req.raw.signal, tools })[Symbol.asyncIterator]();
       let first: IteratorResult<string>;
       try {
         first = await iterator.next();

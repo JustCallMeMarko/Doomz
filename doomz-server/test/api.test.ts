@@ -1,17 +1,22 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createApp } from "../src/app";
 import { createDb } from "../src/db/client";
-import type { LLM, LLMMessage } from "../src/lib/llm";
+import { runTool, type LLM, type LLMMessage, type StreamChatOptions } from "../src/lib/llm";
 
 class FakeLLM implements LLM {
   chunks = ["Boil ", "water ", "for one minute."];
   json = "";
   fail = false;
   lastMessages: LLMMessage[] = [];
+  toolCalls: { name: string; args: unknown }[] = [];
+  toolResults: unknown[] = [];
 
-  async *streamChat(messages: LLMMessage[]) {
+  async *streamChat(messages: LLMMessage[], { tools = [] }: StreamChatOptions = {}) {
     this.lastMessages = messages;
     if (this.fail) throw new Error("connect ECONNREFUSED");
+    for (const call of this.toolCalls) {
+      this.toolResults.push(await runTool(tools.find((t) => t.name === call.name), JSON.stringify(call.args)));
+    }
     for (const c of this.chunks) yield c;
   }
   async completeJSON(messages: LLMMessage[]) {
@@ -228,6 +233,35 @@ describe("chat", () => {
     expect((await req("DELETE", `/api/chat/history/${threadId}`)).status).toBe(204);
     expect((await req("DELETE", `/api/chat/history/${threadId}`)).status).toBe(404);
     expect(await (await req("GET", "/api/chat/history")).json()).toHaveLength(0);
+  });
+
+  test("gives the model read-only tools for inventory and plans", async () => {
+    const plan = await (
+      await req("POST", "/api/plans", {
+        title: "Rain catchment",
+        steps: [{ title: "Fill barrels", requiredItems: [{ itemId: "water", quantity: 10 }] }],
+      })
+    ).json();
+    llm.toolCalls = [
+      { name: "search_inventory", args: { query: "WAT", category: null } },
+      { name: "list_containers", args: {} },
+      { name: "list_plans", args: { status: "todo" } },
+      { name: "get_plan", args: { plan: "rain" } },
+      { name: "get_plan", args: { plan: plan.id } },
+      { name: "list_plans", args: { status: "bogus" } },
+      { name: "drop_tables", args: {} },
+    ];
+    expect((await req("POST", "/api/chat/stream", { message: "What do I have?" })).status).toBe(200);
+    expect(llm.lastMessages[0]!.content).toContain("read-only");
+
+    const [inventory, containers, plans, byTitle, byId, invalid, unknown] = llm.toolResults as any[];
+    expect(inventory.items.map((i: { id: string }) => i.id)).toContain("water");
+    expect(containers.length).toBeGreaterThan(0);
+    expect(plans).toEqual([expect.objectContaining({ id: plan.id, title: "Rain catchment", progress: "0/1 steps done" })]);
+    expect(byTitle).toEqual(byId);
+    expect(byId.steps[0].requiredItems[0]).toMatchObject({ needed: 10, onHand: expect.any(Number) });
+    expect(invalid.error).toBe("Invalid arguments");
+    expect(unknown).toEqual({ error: "Unknown tool" });
   });
 
   test("returns 502 without creating a thread when the model is down", async () => {
