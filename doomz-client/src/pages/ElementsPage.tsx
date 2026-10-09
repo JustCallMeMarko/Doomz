@@ -1,162 +1,101 @@
 import { useState } from "react"
-import { FlaskConical, Lock, X } from "lucide-react"
+import { useNavigate } from "react-router-dom"
+import { Bot, MapPin } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Banner } from "@/components/banner"
-import { useApi } from "@/hooks/use-api"
-import { cn } from "cn"
 import {
-  combineElements,
-  getElement,
-  listElements,
-  unlockElement,
-  type CombineResult,
-  type ElementDetail,
-} from "@/lib/api"
-
-type Mode = "inspect" | "combine"
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import { cn } from "cn"
+import { CATEGORY_META, ELEMENTS, type PeriodicElement } from "@/lib/elements"
 
 export default function ElementsPage() {
-  const { data: elements, loading, reload } = useApi(() => listElements(), [])
-  const [mode, setMode] = useState<Mode>("inspect")
-  const [selected, setSelected] = useState<string[]>([])
-  const [detail, setDetail] = useState<ElementDetail>()
-  const [result, setResult] = useState<CombineResult>()
-  const [error, setError] = useState<string>()
+  const [selected, setSelected] = useState<PeriodicElement>()
+  const navigate = useNavigate()
 
-  const pick = async (id: string) => {
-    setError(undefined)
-    setResult(undefined)
-    if (mode === "combine") {
-      const next = selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id].slice(-2)
-      setSelected(next)
-      if (next.length === 2) {
-        try {
-          setResult(await combineElements(next[0]!, next[1]!))
-          setSelected([])
-          reload()
-        } catch (e) {
-          setError(e instanceof Error ? e.message : "Combination failed")
-          setSelected([])
-        }
-      }
-    } else {
-      try {
-        setDetail(await getElement(id))
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Lookup failed")
-      }
-    }
+  const askAbout = (el: PeriodicElement) => {
+    navigate(
+      `/home?ask=${encodeURIComponent(
+        `Tell me more about ${el.name} (${el.symbol}): key properties, practical uses, and how to obtain or refine it in a grid-down scenario.`,
+      )}`,
+    )
   }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold tracking-tight">Elements Vault</h1>
-        <Button
-          variant={mode === "combine" ? "default" : "outline"}
-          onClick={() => {
-            setMode(mode === "combine" ? "inspect" : "combine")
-            setSelected([])
-            setResult(undefined)
-          }}
-        >
-          <FlaskConical /> {mode === "combine" ? "Cancel combine" : "Combine two elements"}
-        </Button>
-      </div>
-
-      {mode === "combine" && (
-        <Banner
-          tone="info"
-          text={`Combine mode — pick two discovered elements${selected.length ? ` (selected: ${selected.join(" + ")})` : ""}`}
-        />
-      )}
-      {error && <Banner text={error} tone="error" />}
-      {result && (
-        <Banner
-          tone="info"
-          text={
-            result.success
-              ? `Synthesis ${result.isNew ? "discovered" : "known"}: ${result.result?.name} (${result.result?.symbol})`
-              : "Nothing happened — these elements don't combine."
-          }
-        />
-      )}
-
-      {loading ? (
-        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
-          {Array.from({ length: 10 }).map((_, i) => (
-            <Skeleton key={i} className="h-28" />
+        <h1 className="text-xl font-semibold tracking-tight">Periodic Table</h1>
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          {Object.entries(CATEGORY_META).map(([key, meta]) => (
+            <span key={key} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <span className={cn("inline-block size-2.5 rounded-sm border", meta.tile.split(" ").slice(0, 2).join(" "))} />
+              {meta.label}
+            </span>
           ))}
         </div>
-      ) : (
-        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
-          {elements?.map((el) => (
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-border bg-card p-3">
+        <div className="grid min-w-[54rem] grid-cols-[repeat(18,minmax(0,1fr))] gap-1">
+          {ELEMENTS.map((el) => (
             <button
-              key={el.id}
-              onClick={() => pick(el.id)}
-              disabled={mode === "combine" && !el.discovered}
+              key={el.z}
+              onClick={() => setSelected(el)}
+              style={{ gridColumn: el.x, gridRow: el.y }}
               className={cn(
-                "relative rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-primary/50 disabled:cursor-not-allowed disabled:opacity-50",
-                selected.includes(el.id) && "border-primary",
-                !el.discovered && "bg-muted/40",
+                "flex aspect-square flex-col items-center justify-center rounded-md border p-0.5 transition-colors",
+                CATEGORY_META[el.category].tile,
               )}
             >
-              {!el.discovered && <Lock className="absolute right-2 top-2 size-3.5 text-muted-foreground" />}
-              <div className="text-xs text-muted-foreground">{el.category}</div>
-              <div className="mt-1 text-lg font-semibold">{el.symbol}</div>
-              <div className="text-xs">{el.name}</div>
-              {el.isBase && <div className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">primal</div>}
+              <span className="text-[8px] leading-none text-muted-foreground">{el.z}</span>
+              <span className="text-sm font-bold leading-tight">{el.symbol}</span>
+              <span className="hidden max-w-full truncate text-[7px] leading-none text-muted-foreground xl:block">
+                {el.name}
+              </span>
             </button>
           ))}
         </div>
-      )}
+      </div>
 
-      {detail && mode === "inspect" && (
-        <div className="rounded-xl border border-border bg-card p-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="text-lg font-semibold">
-                {detail.name} <span className="text-muted-foreground">({detail.symbol})</span>
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {detail.category} · {detail.discovered ? "discovered" : "undiscovered"}
-              </div>
-            </div>
-            <div className="flex gap-2">
-              {!detail.discovered && (
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    unlockElement(detail.id).then(() => {
-                      reload()
-                      pick(detail.id)
-                    })
-                  }
-                >
-                  Mark discovered
+      <Sheet open={!!selected} onOpenChange={(o) => !o && setSelected(undefined)}>
+        <SheetContent>
+          {selected && (
+            <>
+              <SheetHeader>
+                <SheetTitle>
+                  {selected.name} <span className="text-muted-foreground">({selected.symbol})</span>
+                </SheetTitle>
+                <SheetDescription>
+                  #{selected.z} · {CATEGORY_META[selected.category].label} · {selected.mass} u
+                </SheetDescription>
+              </SheetHeader>
+              <div className="space-y-4 p-4">
+                <p className="text-sm text-muted-foreground">{selected.info}</p>
+                <div>
+                  <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Uses</div>
+                  <p className="text-sm">{selected.uses}</p>
+                </div>
+                <div>
+                  <div className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    <MapPin className="size-3.5" /> Where to get it
+                  </div>
+                  <ul className="list-disc space-y-1 pl-5 text-sm">
+                    {selected.examples.map((ex) => (
+                      <li key={ex}>{ex}</li>
+                    ))}
+                  </ul>
+                </div>
+                <Button onClick={() => askAbout(selected)}>
+                  <Bot /> Ask AI about {selected.symbol}
                 </Button>
-              )}
-              <Button variant="ghost" size="icon-sm" aria-label="Close" onClick={() => setDetail(undefined)}>
-                <X />
-              </Button>
-            </div>
-          </div>
-          <p className="mt-2 text-sm text-muted-foreground">{detail.description}</p>
-          {detail.recipes.length > 0 && (
-            <div className="mt-3 text-sm">
-              <span className="text-muted-foreground">Made from: </span>
-              {detail.recipes.map((r) => r.ingredients.join(" + ")).join(" · ")}
-            </div>
+              </div>
+            </>
           )}
-          {detail.usedIn.length > 0 && (
-            <div className="mt-1 text-sm">
-              <span className="text-muted-foreground">Combine with: </span>
-              {detail.usedIn.map((u) => `${u.with} → ${u.result ?? "?"}`).join(" · ")}
-            </div>
-          )}
-        </div>
-      )}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }
