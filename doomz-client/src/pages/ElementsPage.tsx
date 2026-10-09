@@ -69,16 +69,24 @@ export default function ElementsPage() {
                   {selected.name} <span className="text-muted-foreground">({selected.symbol})</span>
                 </SheetTitle>
                 <SheetDescription>
-                  #{selected.z} · {CATEGORY_META[selected.category].label}
+                  #{selected.z} · {CATEGORY_META[selected.category].label} · {selected.mass} u
                 </SheetDescription>
               </SheetHeader>
               <div className="space-y-4 p-4">
                 <p className="text-sm text-muted-foreground">{selected.info}</p>
                 <div>
+                  <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Uses</div>
+                  <p className="text-sm">{selected.uses}</p>
+                </div>
+                <div>
                   <div className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     <MapPin className="size-3.5" /> Where to get it
                   </div>
-                  <p className="text-sm">{selected.sources}</p>
+                  <ul className="list-disc space-y-1 pl-5 text-sm">
+                    {selected.examples.map((ex) => (
+                      <li key={ex}>{ex}</li>
+                    ))}
+                  </ul>
                 </div>
                 <Button onClick={() => askAbout(selected)}>
                   <Bot /> Ask AI about {selected.symbol}
