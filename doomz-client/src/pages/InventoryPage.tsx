@@ -30,6 +30,7 @@ type MoveItem = (id: string, containerId: string | null) => void
 type Confirm = { kind: "item" | "container"; id: string; name: string }
 
 const UNASSIGNED = "__unassigned"
+const PREVIEW_COUNT = 3
 
 const COLORS: Record<ContainerColor, { dot: string; border: string; tint: string }> = {
   red: { dot: "bg-red-500", border: "border-red-500/40", tint: "bg-red-500/10" },
@@ -151,8 +152,12 @@ function ContainerBox({
   dropTarget,
   setDropTarget,
   onDropItem,
+  expanded,
+  onToggle,
   ...rowProps
 }: Omit<RowProps, "item"> & {
+  expanded: boolean
+  onToggle: () => void
   container?: InventoryContainer
   items: InventoryItem[]
   onAdd: () => void
@@ -208,13 +213,18 @@ function ContainerBox({
         )}
       </header>
       <div className="flex-1 space-y-2 p-2.5">
-        {items.map((item) => (
+        {(expanded ? items : items.slice(0, PREVIEW_COUNT)).map((item) => (
           <ItemRow key={item.id} item={item} {...rowProps} onDragStart={() => undefined} />
         ))}
         {items.length === 0 && (
           <p className="rounded-lg border border-dashed border-border py-6 text-center text-xs text-muted-foreground">
             Empty — drop items here
           </p>
+        )}
+        {items.length > PREVIEW_COUNT && (
+          <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={onToggle}>
+            {expanded ? "Show less" : `Show all (${items.length})`}
+          </Button>
         )}
       </div>
     </section>
@@ -505,6 +515,22 @@ export default function InventoryPage() {
   const setParams = (view: ViewMode, filter: TableFilter) =>
     setSearchParams(view === "table" ? { view, ...(filter !== "all" && { show: filter }) } : {}, { replace: true })
 
+  const open = new Set((searchParams.get("open") ?? "").split(",").filter(Boolean))
+  const toggleOpen = (key: string) => {
+    const next = new Set(open)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    setSearchParams(
+      (prev) => {
+        const q = new URLSearchParams(prev)
+        if (next.size) q.set("open", [...next].join(","))
+        else q.delete("open")
+        return q
+      },
+      { replace: true },
+    )
+  }
+
   const [sheet, setSheet] = useState<{ kind: "item"; containerId?: string } | { kind: "container" } | null>(null)
   const [confirm, setConfirm] = useState<Confirm | null>(null)
   const [dropTarget, setDropTarget] = useState<string>()
@@ -636,6 +662,8 @@ export default function InventoryPage() {
                 container={g.container}
                 items={g.items}
                 onAdd={() => setSheet({ kind: "item", containerId: g.container?.id ?? UNASSIGNED })}
+                expanded={open.has(key)}
+                onToggle={() => toggleOpen(key)}
                 dropTarget={dropTarget === key}
                 setDropTarget={(on) => setDropTarget(on ? key : undefined)}
                 onDropItem={(id) => move(id, g.container?.id ?? null)}
